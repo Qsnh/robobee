@@ -42,7 +42,7 @@ export function Dashboard() {
                 </p>
                 <p className="text-xs text-muted-foreground">{w.email}</p>
                 <p className="text-xs text-muted-foreground mt-1">
-                  Runtime: {w.runtime_type}
+                  Runtime: {w.runtime_type} | {w.trigger_type === "cron" ? `Cron: ${w.cron_expression}` : "Message"}
                 </p>
               </CardContent>
             </Card>

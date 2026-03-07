@@ -45,7 +45,7 @@ export function useRejectExecution() {
 
 export function useSendMessage() {
   return useMutation({
-    mutationFn: ({ workerId, message, taskId }: { workerId: string; message: string; taskId?: string }) =>
-      api.message.send(workerId, message, taskId),
+    mutationFn: ({ workerId, message }: { workerId: string; message: string }) =>
+      api.message.send(workerId, message),
   })
 }

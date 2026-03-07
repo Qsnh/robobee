@@ -37,7 +37,7 @@ export function Executions() {
           <TableHeader>
             <TableRow>
               <TableHead>ID</TableHead>
-              <TableHead>Task ID</TableHead>
+              <TableHead>Worker</TableHead>
               <TableHead>Status</TableHead>
               <TableHead>Started</TableHead>
               <TableHead>Completed</TableHead>
@@ -54,8 +54,13 @@ export function Executions() {
                     {e.id.slice(0, 8)}...
                   </Link>
                 </TableCell>
-                <TableCell className="font-mono text-sm">
-                  {e.task_id.slice(0, 8)}...
+                <TableCell>
+                  <Link
+                    to={`/workers/${e.worker_id}`}
+                    className="font-mono text-sm hover:underline"
+                  >
+                    {e.worker_id.slice(0, 8)}...
+                  </Link>
                 </TableCell>
                 <TableCell>
                   <Badge className={statusColor[e.status] || ""}>

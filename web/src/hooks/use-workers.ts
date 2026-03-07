@@ -18,8 +18,16 @@ export function useWorker(id: string) {
 export function useCreateWorker() {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: (data: { name: string; description: string; runtime_type: string }) =>
-      api.workers.create(data),
+    mutationFn: (data: {
+      name: string
+      description: string
+      prompt: string
+      runtime_type: string
+      trigger_type: string
+      cron_expression?: string
+      recipients?: string[]
+      requires_approval?: boolean
+    }) => api.workers.create(data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["workers"] })
     },
@@ -33,5 +41,12 @@ export function useDeleteWorker() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["workers"] })
     },
+  })
+}
+
+export function useWorkerExecutions(workerId: string) {
+  return useQuery({
+    queryKey: ["workers", workerId, "executions"],
+    queryFn: () => api.workers.executions(workerId),
   })
 }

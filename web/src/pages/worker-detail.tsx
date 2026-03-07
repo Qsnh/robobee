@@ -1,9 +1,8 @@
 import { useState } from "react"
-import { useParams, useNavigate } from "react-router-dom"
+import { useParams, useNavigate, Link } from "react-router-dom"
 import { useWorker } from "@/hooks/use-workers"
-import { useTasks, useCreateTask, useDeleteTask, useExecuteTask } from "@/hooks/use-tasks"
+import { useWorkerExecutions } from "@/hooks/use-workers"
 import { useSendMessage } from "@/hooks/use-executions"
-import type { Task } from "@/lib/types"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -15,61 +14,34 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
+
+const statusColor: Record<string, string> = {
+  idle: "bg-green-100 text-green-800",
+  working: "bg-blue-100 text-blue-800",
+  error: "bg-red-100 text-red-800",
+}
+
+const execStatusColor: Record<string, string> = {
+  pending: "bg-gray-100 text-gray-800",
+  running: "bg-blue-100 text-blue-800",
+  awaiting_approval: "bg-yellow-100 text-yellow-800",
+  approved: "bg-green-100 text-green-800",
+  rejected: "bg-red-100 text-red-800",
+  completed: "bg-green-100 text-green-800",
+  failed: "bg-red-100 text-red-800",
+}
 
 export function WorkerDetail() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
   const { data: worker, error: workerError } = useWorker(id!)
-  const { data: tasks = [] } = useTasks(id!)
-  const createTask = useCreateTask(id!)
-  const deleteTask = useDeleteTask(id!)
-  const executeTask = useExecuteTask()
+  const { data: executions = [] } = useWorkerExecutions(id!)
   const sendMessage = useSendMessage()
 
-  const [taskDialogOpen, setTaskDialogOpen] = useState(false)
   const [msgDialogOpen, setMsgDialogOpen] = useState(false)
   const [message, setMessage] = useState("")
   const [error, setError] = useState("")
-
-  // New task form
-  const [taskName, setTaskName] = useState("")
-  const [taskPlan, setTaskPlan] = useState("")
-  const [taskRecipients, setTaskRecipients] = useState("")
-  const [taskTrigger, setTaskTrigger] = useState("manual")
-  const [taskCron, setTaskCron] = useState("")
-  const [taskApproval, setTaskApproval] = useState(false)
-
-  const handleCreateTask = async () => {
-    try {
-      const recipients = taskRecipients.split(",").map((r) => r.trim()).filter(Boolean)
-      await createTask.mutateAsync({
-        name: taskName,
-        plan: taskPlan,
-        trigger_type: taskTrigger as Task["trigger_type"],
-        cron_expression: taskCron,
-        recipients,
-        requires_approval: taskApproval,
-      })
-      setTaskDialogOpen(false)
-      setTaskName("")
-      setTaskPlan("")
-      setTaskRecipients("")
-    } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "Failed to create task")
-    }
-  }
-
-  const handleExecute = async (taskId: string) => {
-    try {
-      const exec = await executeTask.mutateAsync(taskId)
-      navigate(`/executions/${exec.id}`)
-    } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "Failed to execute task")
-    }
-  }
 
   const handleSendMessage = async () => {
     try {
@@ -91,28 +63,31 @@ export function WorkerDetail() {
           <h1 className="text-2xl font-bold">{worker.name}</h1>
           <p className="text-muted-foreground">{worker.email}</p>
         </div>
-        <div className="flex gap-2">
-          <Dialog open={msgDialogOpen} onOpenChange={setMsgDialogOpen}>
-            <DialogTrigger render={<Button />}>
-              Send Message
-            </DialogTrigger>
-            <DialogContent>
-              <DialogHeader>
-                <DialogTitle>Send Message to {worker.name}</DialogTitle>
-              </DialogHeader>
-              <div className="space-y-4">
-                <Textarea
-                  value={message}
-                  onChange={(e) => setMessage(e.target.value)}
-                  placeholder="Enter your message..."
-                  rows={4}
-                />
-                <Button onClick={handleSendMessage} className="w-full">
-                  Send
-                </Button>
-              </div>
-            </DialogContent>
-          </Dialog>
+        <div className="flex gap-2 items-center">
+          <Badge className={statusColor[worker.status] || ""}>{worker.status}</Badge>
+          {worker.trigger_type === "message" && (
+            <Dialog open={msgDialogOpen} onOpenChange={setMsgDialogOpen}>
+              <DialogTrigger render={<Button />}>
+                Send Message
+              </DialogTrigger>
+              <DialogContent>
+                <DialogHeader>
+                  <DialogTitle>Send Message to {worker.name}</DialogTitle>
+                </DialogHeader>
+                <div className="space-y-4">
+                  <Textarea
+                    value={message}
+                    onChange={(e) => setMessage(e.target.value)}
+                    placeholder="Enter your message..."
+                    rows={4}
+                  />
+                  <Button onClick={handleSendMessage} className="w-full">
+                    Send
+                  </Button>
+                </div>
+              </DialogContent>
+            </Dialog>
+          )}
         </div>
       </div>
 
@@ -120,96 +95,35 @@ export function WorkerDetail() {
         <p className="text-red-500 mb-4">{error || workerError?.message}</p>
       )}
 
-      <Tabs defaultValue="tasks">
+      <Tabs defaultValue="executions">
         <TabsList>
-          <TabsTrigger value="tasks">Tasks</TabsTrigger>
+          <TabsTrigger value="executions">Executions</TabsTrigger>
           <TabsTrigger value="info">Info</TabsTrigger>
         </TabsList>
 
-        <TabsContent value="tasks" className="mt-4">
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-lg font-semibold">Tasks</h2>
-            <Dialog open={taskDialogOpen} onOpenChange={setTaskDialogOpen}>
-              <DialogTrigger render={<Button size="sm" />}>
-                Add Task
-              </DialogTrigger>
-              <DialogContent>
-                <DialogHeader>
-                  <DialogTitle>Create Task</DialogTitle>
-                </DialogHeader>
-                <div className="space-y-4">
-                  <div>
-                    <Label>Name</Label>
-                    <Input value={taskName} onChange={(e) => setTaskName(e.target.value)} />
-                  </div>
-                  <div>
-                    <Label>Plan</Label>
-                    <Textarea value={taskPlan} onChange={(e) => setTaskPlan(e.target.value)} rows={4} />
-                  </div>
-                  <div>
-                    <Label>Recipients (comma-separated emails)</Label>
-                    <Input value={taskRecipients} onChange={(e) => setTaskRecipients(e.target.value)} />
-                  </div>
-                  <div>
-                    <Label>Trigger Type</Label>
-                    <select
-                      value={taskTrigger}
-                      onChange={(e) => setTaskTrigger(e.target.value)}
-                      className="w-full rounded-md border px-3 py-2 text-sm"
-                    >
-                      <option value="manual">Manual</option>
-                      <option value="cron">Cron</option>
-                      <option value="email">Email</option>
-                    </select>
-                  </div>
-                  {taskTrigger === "cron" && (
-                    <div>
-                      <Label>Cron Expression</Label>
-                      <Input value={taskCron} onChange={(e) => setTaskCron(e.target.value)} placeholder="0 9 * * *" />
-                    </div>
-                  )}
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="checkbox"
-                      id="approval"
-                      checked={taskApproval}
-                      onChange={(e) => setTaskApproval(e.target.checked)}
-                    />
-                    <Label htmlFor="approval">Requires Approval</Label>
-                  </div>
-                  <Button onClick={handleCreateTask} className="w-full">Create</Button>
-                </div>
-              </DialogContent>
-            </Dialog>
-          </div>
-
-          {tasks.length === 0 && <p className="text-muted-foreground">No tasks yet.</p>}
-
+        <TabsContent value="executions" className="mt-4">
+          {executions.length === 0 && (
+            <p className="text-muted-foreground">No executions yet.</p>
+          )}
           <div className="space-y-3">
-            {tasks.map((t) => (
-              <Card key={t.id}>
+            {executions.map((e) => (
+              <Card key={e.id}>
                 <CardContent className="flex items-center justify-between py-4">
                   <div>
-                    <p className="font-medium">{t.name}</p>
-                    <p className="text-sm text-muted-foreground">
-                      {t.trigger_type} {t.cron_expression && `(${t.cron_expression})`}
-                      {t.requires_approval && " | Approval required"}
+                    <Link
+                      to={`/executions/${e.id}`}
+                      className="font-mono text-sm hover:underline"
+                    >
+                      {e.id.slice(0, 8)}...
+                    </Link>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      {e.started_at ? new Date(e.started_at).toLocaleString() : "-"}
+                      {e.trigger_input && ` | ${e.trigger_input.slice(0, 50)}${e.trigger_input.length > 50 ? "..." : ""}`}
                     </p>
                   </div>
-                  <div className="flex gap-2">
-                    <Button size="sm" onClick={() => handleExecute(t.id)}>
-                      Execute
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="destructive"
-                      onClick={async () => {
-                        await deleteTask.mutateAsync(t.id)
-                      }}
-                    >
-                      Delete
-                    </Button>
-                  </div>
+                  <Badge className={execStatusColor[e.status] || ""}>
+                    {e.status}
+                  </Badge>
                 </CardContent>
               </Card>
             ))}
@@ -222,11 +136,20 @@ export function WorkerDetail() {
               <CardTitle>Worker Info</CardTitle>
             </CardHeader>
             <CardContent className="space-y-2">
-              <p><strong>ID:</strong> {worker.id}</p>
+              <p><strong>ID:</strong> <span className="font-mono text-sm">{worker.id}</span></p>
               <p><strong>Runtime:</strong> {worker.runtime_type}</p>
+              <p><strong>Trigger:</strong> {worker.trigger_type}
+                {worker.trigger_type === "cron" && ` (${worker.cron_expression})`}
+              </p>
+              <p><strong>Requires Approval:</strong> {worker.requires_approval ? "Yes" : "No"}</p>
               <p><strong>Work Dir:</strong> {worker.work_dir}</p>
-              <p><strong>Status:</strong> <Badge>{worker.status}</Badge></p>
               <p><strong>Created:</strong> {new Date(worker.created_at).toLocaleString()}</p>
+              <div>
+                <strong>Prompt:</strong>
+                <pre className="mt-1 whitespace-pre-wrap text-sm bg-muted p-3 rounded-md">
+                  {worker.prompt}
+                </pre>
+              </div>
             </CardContent>
           </Card>
         </TabsContent>

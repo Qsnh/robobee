@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react"
-import { useParams } from "react-router-dom"
+import { useParams, Link } from "react-router-dom"
 import { useExecution, useExecutionEmails, useApproveExecution, useRejectExecution } from "@/hooks/use-executions"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -34,7 +34,6 @@ export function ExecutionDetail() {
   const [error, setError] = useState("")
   const logsEndRef = useRef<HTMLDivElement>(null)
 
-  // WebSocket for live logs
   useEffect(() => {
     const wsBase = import.meta.env.VITE_API_URL || "http://localhost:8080/api"
     const wsUrl = wsBase.replace(/^http/, "ws") + `/executions/${id}/logs`
@@ -45,9 +44,7 @@ export function ExecutionDetail() {
       setLogs((prev) => [...prev, data])
     }
 
-    ws.onerror = () => {
-      // Connection might fail if execution is already done
-    }
+    ws.onerror = () => {}
 
     return () => ws.close()
   }, [id])
@@ -184,8 +181,20 @@ export function ExecutionDetail() {
         <TabsContent value="info" className="mt-4">
           <Card>
             <CardContent className="pt-6 space-y-2">
-              <p><strong>Task ID:</strong> <span className="font-mono text-sm">{execution.task_id}</span></p>
+              <p><strong>Worker:</strong>{" "}
+                <Link to={`/workers/${execution.worker_id}`} className="font-mono text-sm hover:underline">
+                  {execution.worker_id.slice(0, 8)}...
+                </Link>
+              </p>
               <p><strong>Session ID:</strong> <span className="font-mono text-sm">{execution.session_id}</span></p>
+              {execution.trigger_input && (
+                <div>
+                  <strong>Trigger Input:</strong>
+                  <pre className="mt-1 whitespace-pre-wrap text-sm bg-muted p-2 rounded-md">
+                    {execution.trigger_input}
+                  </pre>
+                </div>
+              )}
               <p><strong>PID:</strong> {execution.ai_process_pid || "N/A"}</p>
               <p><strong>Started:</strong> {execution.started_at ? new Date(execution.started_at).toLocaleString() : "-"}</p>
               <p><strong>Completed:</strong> {execution.completed_at ? new Date(execution.completed_at).toLocaleString() : "-"}</p>

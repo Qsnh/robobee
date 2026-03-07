@@ -1,37 +1,30 @@
 export type RuntimeType = "claude_code" | "codex"
 export type WorkerStatus = "idle" | "working" | "error"
-export type TriggerType = "manual" | "email" | "cron"
+export type TriggerType = "cron" | "message"
 export type ExecutionStatus = "pending" | "running" | "awaiting_approval" | "approved" | "rejected" | "completed" | "failed"
 
 export interface Worker {
   id: string
   name: string
   description: string
+  prompt: string
   email: string
   runtime_type: RuntimeType
   work_dir: string
+  trigger_type: TriggerType
+  cron_expression: string
+  recipients: string[]
+  requires_approval: boolean
   status: WorkerStatus
   created_at: string
   updated_at: string
 }
 
-export interface Task {
+export interface WorkerExecution {
   id: string
   worker_id: string
-  name: string
-  plan: string
-  trigger_type: TriggerType
-  cron_expression: string
-  recipients: string[]
-  requires_approval: boolean
-  created_at: string
-  updated_at: string
-}
-
-export interface TaskExecution {
-  id: string
-  task_id: string
   session_id: string
+  trigger_input: string
   status: ExecutionStatus
   result: string
   ai_process_pid: number
