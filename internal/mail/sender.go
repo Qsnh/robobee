@@ -20,7 +20,7 @@ func NewSender(cfg config.SMTPConfig, emailStore *store.EmailStore) *Sender {
 	return &Sender{cfg: cfg, emailStore: emailStore}
 }
 
-func (s *Sender) SendReport(execution model.TaskExecution, workerEmail string, recipients []string, subject, body string) error {
+func (s *Sender) SendReport(execution model.WorkerExecution, workerEmail string, recipients []string, subject, body string) error {
 	msgID := fmt.Sprintf("<%s@%s>", execution.SessionID, s.cfg.Domain)
 
 	allRecipients := make([]string, len(recipients))
@@ -65,7 +65,7 @@ func (s *Sender) SendReport(execution model.TaskExecution, workerEmail string, r
 	return err
 }
 
-func (s *Sender) SendApprovalRequest(execution model.TaskExecution, workerEmail string, recipients []string, subject, body string) error {
+func (s *Sender) SendApprovalRequest(execution model.WorkerExecution, workerEmail string, recipients []string, subject, body string) error {
 	approvalBody := body + "\n\n---\nReply with 'approve/通过' to approve, or 'reject/驳回' with feedback to reject.\n"
 	return s.SendReport(execution, workerEmail, recipients, "[Approval Required] "+subject, approvalBody)
 }

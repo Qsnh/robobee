@@ -15,14 +15,12 @@ func TestExecutionStore_CreateAndGet(t *testing.T) {
 	defer db.Close()
 
 	ws := NewWorkerStore(db)
-	ts := NewTaskStore(db)
 	es := NewExecutionStore(db)
 
-	w, _ := ws.Create(model.Worker{Name: "Bot", Email: "bot@robobee.local", RuntimeType: model.RuntimeClaudeCode, WorkDir: "/tmp/bot"})
 	recipients, _ := json.Marshal([]string{"user@example.com"})
-	task, _ := ts.Create(model.Task{WorkerID: w.ID, Name: "Task1", Plan: "do stuff", TriggerType: model.TriggerManual, Recipients: recipients})
+	w, _ := ws.Create(model.Worker{Name: "Bot", Email: "bot@robobee.local", RuntimeType: model.RuntimeClaudeCode, WorkDir: "/tmp/bot", TriggerType: model.TriggerMessage, Recipients: recipients})
 
-	exec, err := es.Create(task.ID)
+	exec, err := es.Create(w.ID, "test message")
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
@@ -37,8 +35,8 @@ func TestExecutionStore_CreateAndGet(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetByID: %v", err)
 	}
-	if got.TaskID != task.ID {
-		t.Errorf("expected task_id %s, got %s", task.ID, got.TaskID)
+	if got.WorkerID != w.ID {
+		t.Errorf("expected worker_id %s, got %s", w.ID, got.WorkerID)
 	}
 }
 
@@ -50,13 +48,11 @@ func TestExecutionStore_UpdateStatus(t *testing.T) {
 	defer db.Close()
 
 	ws := NewWorkerStore(db)
-	ts := NewTaskStore(db)
 	es := NewExecutionStore(db)
 
-	w, _ := ws.Create(model.Worker{Name: "Bot", Email: "bot@robobee.local", RuntimeType: model.RuntimeClaudeCode, WorkDir: "/tmp/bot"})
 	recipients, _ := json.Marshal([]string{"user@example.com"})
-	task, _ := ts.Create(model.Task{WorkerID: w.ID, Name: "Task1", Plan: "do stuff", TriggerType: model.TriggerManual, Recipients: recipients})
-	exec, _ := es.Create(task.ID)
+	w, _ := ws.Create(model.Worker{Name: "Bot", Email: "bot@robobee.local", RuntimeType: model.RuntimeClaudeCode, WorkDir: "/tmp/bot", TriggerType: model.TriggerMessage, Recipients: recipients})
+	exec, _ := es.Create(w.ID, "test message")
 
 	err = es.UpdateStatus(exec.ID, model.ExecStatusRunning)
 	if err != nil {
@@ -76,13 +72,11 @@ func TestExecutionStore_GetBySessionID(t *testing.T) {
 	defer db.Close()
 
 	ws := NewWorkerStore(db)
-	ts := NewTaskStore(db)
 	es := NewExecutionStore(db)
 
-	w, _ := ws.Create(model.Worker{Name: "Bot", Email: "bot@robobee.local", RuntimeType: model.RuntimeClaudeCode, WorkDir: "/tmp/bot"})
 	recipients, _ := json.Marshal([]string{"user@example.com"})
-	task, _ := ts.Create(model.Task{WorkerID: w.ID, Name: "Task1", Plan: "do stuff", TriggerType: model.TriggerManual, Recipients: recipients})
-	exec, _ := es.Create(task.ID)
+	w, _ := ws.Create(model.Worker{Name: "Bot", Email: "bot@robobee.local", RuntimeType: model.RuntimeClaudeCode, WorkDir: "/tmp/bot", TriggerType: model.TriggerMessage, Recipients: recipients})
+	exec, _ := es.Create(w.ID, "test message")
 
 	got, err := es.GetBySessionID(exec.SessionID)
 	if err != nil {

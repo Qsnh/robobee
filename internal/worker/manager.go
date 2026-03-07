@@ -2,6 +2,7 @@ package worker
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"os"
@@ -17,12 +18,11 @@ import (
 type Manager struct {
 	cfg            config.Config
 	workerStore    *store.WorkerStore
-	taskStore      *store.TaskStore
 	executionStore *store.ExecutionStore
 	emailStore     *store.EmailStore
 	memoryStore    *store.MemoryStore
 
-	activeRuntimes map[string]Runtime   // execution_id -> runtime
+	activeRuntimes map[string]Runtime     // execution_id -> runtime
 	logSubscribers map[string][]chan Output // execution_id -> subscribers
 	mu             sync.RWMutex
 }
@@ -30,7 +30,6 @@ type Manager struct {
 func NewManager(
 	cfg config.Config,
 	ws *store.WorkerStore,
-	ts *store.TaskStore,
 	es *store.ExecutionStore,
 	emailS *store.EmailStore,
 	ms *store.MemoryStore,
@@ -38,7 +37,6 @@ func NewManager(
 	return &Manager{
 		cfg:            cfg,
 		workerStore:    ws,
-		taskStore:      ts,
 		executionStore: es,
 		emailStore:     emailS,
 		memoryStore:    ms,
@@ -47,7 +45,14 @@ func NewManager(
 	}
 }
 
-func (m *Manager) CreateWorker(name, description string, runtimeType model.RuntimeType) (model.Worker, error) {
+func (m *Manager) CreateWorker(
+	name, description, prompt string,
+	runtimeType model.RuntimeType,
+	triggerType model.TriggerType,
+	cronExpression string,
+	recipients []string,
+	requiresApproval bool,
+) (model.Worker, error) {
 	email := fmt.Sprintf("%s@%s", name, m.cfg.SMTP.Domain)
 	workDir := filepath.Join(m.cfg.Workers.BaseDir, name)
 
@@ -62,29 +67,31 @@ func (m *Manager) CreateWorker(name, description string, runtimeType model.Runti
 		return model.Worker{}, fmt.Errorf("create CLAUDE.md: %w", err)
 	}
 
+	recipientsJSON, _ := json.Marshal(recipients)
+
 	return m.workerStore.Create(model.Worker{
-		Name:        name,
-		Description: description,
-		Email:       email,
-		RuntimeType: runtimeType,
-		WorkDir:     workDir,
+		Name:             name,
+		Description:      description,
+		Prompt:           prompt,
+		Email:            email,
+		RuntimeType:      runtimeType,
+		WorkDir:          workDir,
+		TriggerType:      triggerType,
+		CronExpression:   cronExpression,
+		Recipients:       recipientsJSON,
+		RequiresApproval: requiresApproval,
 	})
 }
 
-func (m *Manager) ExecuteTask(ctx context.Context, taskID string) (model.TaskExecution, error) {
-	task, err := m.taskStore.GetByID(taskID)
+func (m *Manager) ExecuteWorker(ctx context.Context, workerID, triggerInput string) (model.WorkerExecution, error) {
+	worker, err := m.workerStore.GetByID(workerID)
 	if err != nil {
-		return model.TaskExecution{}, fmt.Errorf("get task: %w", err)
+		return model.WorkerExecution{}, fmt.Errorf("get worker: %w", err)
 	}
 
-	worker, err := m.workerStore.GetByID(task.WorkerID)
+	exec, err := m.executionStore.Create(workerID, triggerInput)
 	if err != nil {
-		return model.TaskExecution{}, fmt.Errorf("get worker: %w", err)
-	}
-
-	exec, err := m.executionStore.Create(taskID)
-	if err != nil {
-		return model.TaskExecution{}, fmt.Errorf("create execution: %w", err)
+		return model.WorkerExecution{}, fmt.Errorf("create execution: %w", err)
 	}
 
 	// Update worker status
@@ -103,7 +110,7 @@ func (m *Manager) ExecuteTask(ctx context.Context, taskID string) (model.TaskExe
 		rt = NewCodexRuntime(m.cfg.Runtime.Codex.Binary)
 		timeout = m.cfg.Runtime.Codex.Timeout
 	default:
-		return model.TaskExecution{}, fmt.Errorf("unknown runtime: %s", worker.RuntimeType)
+		return model.WorkerExecution{}, fmt.Errorf("unknown runtime: %s", worker.RuntimeType)
 	}
 
 	// Decouple from caller context; apply configured timeout if set
@@ -111,11 +118,17 @@ func (m *Manager) ExecuteTask(ctx context.Context, taskID string) (model.TaskExe
 	if timeout > 0 {
 		var cancel context.CancelFunc
 		execCtx, cancel = context.WithTimeout(ctx, timeout)
-		_ = cancel // cancel will be called when the subprocess exits via monitorExecution cleanup
+		_ = cancel
+	}
+
+	// Build the prompt: base prompt + trigger input for message-triggered workers
+	prompt := worker.Prompt
+	if triggerInput != "" && triggerInput != "scheduled" {
+		prompt = fmt.Sprintf("%s\n\n---\nMessage:\n%s", worker.Prompt, triggerInput)
 	}
 
 	// Start execution in background
-	outputCh, err := rt.Execute(execCtx, worker.WorkDir, task.Plan)
+	outputCh, err := rt.Execute(execCtx, worker.WorkDir, prompt)
 	if err != nil {
 		m.executionStore.UpdateResult(exec.ID, err.Error(), model.ExecStatusFailed)
 		m.workerStore.UpdateStatus(worker.ID, model.WorkerStatusError)
@@ -135,12 +148,12 @@ func (m *Manager) ExecuteTask(ctx context.Context, taskID string) (model.TaskExe
 	}
 
 	// Monitor output in background
-	go m.monitorExecution(exec, worker, task, outputCh)
+	go m.monitorExecution(exec, worker, outputCh)
 
 	return exec, nil
 }
 
-func (m *Manager) monitorExecution(exec model.TaskExecution, worker model.Worker, task model.Task, outputCh <-chan Output) {
+func (m *Manager) monitorExecution(exec model.WorkerExecution, worker model.Worker, outputCh <-chan Output) {
 	var result string
 
 	for out := range outputCh {
@@ -160,7 +173,7 @@ func (m *Manager) monitorExecution(exec model.TaskExecution, worker model.Worker
 		case OutputStdout:
 			result += out.Content + "\n"
 		case OutputDone:
-			if task.RequiresApproval {
+			if worker.RequiresApproval {
 				m.executionStore.UpdateResult(exec.ID, result, model.ExecStatusAwaitingApproval)
 			} else {
 				m.executionStore.UpdateResult(exec.ID, result, model.ExecStatusCompleted)
@@ -175,7 +188,6 @@ func (m *Manager) monitorExecution(exec model.TaskExecution, worker model.Worker
 	// Cleanup
 	m.mu.Lock()
 	delete(m.activeRuntimes, exec.ID)
-	// Close subscriber channels
 	for _, sub := range m.logSubscribers[exec.ID] {
 		close(sub)
 	}

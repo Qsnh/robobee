@@ -35,13 +35,12 @@ func main() {
 
 	// Create stores
 	workerStore := store.NewWorkerStore(db)
-	taskStore := store.NewTaskStore(db)
 	execStore := store.NewExecutionStore(db)
 	emailStore := store.NewEmailStore(db)
 	memoryStore := store.NewMemoryStore(db)
 
 	// Create worker manager
-	mgr := worker.NewManager(cfg, workerStore, taskStore, execStore, emailStore, memoryStore)
+	mgr := worker.NewManager(cfg, workerStore, execStore, emailStore, memoryStore)
 
 	// Create email sender
 	_ = mail.NewSender(cfg.SMTP, emailStore)
@@ -55,13 +54,13 @@ func main() {
 	}()
 
 	// Start cron scheduler
-	sched := scheduler.New(taskStore, mgr)
+	sched := scheduler.New(workerStore, mgr)
 	if err := sched.Start(); err != nil {
 		log.Printf("scheduler start error: %v", err)
 	}
 
 	// Start HTTP API
-	srv := api.NewServer(workerStore, taskStore, execStore, emailStore, memoryStore, mgr)
+	srv := api.NewServer(workerStore, execStore, emailStore, memoryStore, mgr)
 
 	// Graceful shutdown
 	quit := make(chan os.Signal, 1)

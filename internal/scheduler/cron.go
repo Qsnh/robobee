@@ -10,61 +10,59 @@ import (
 )
 
 type Scheduler struct {
-	cron      *cron.Cron
-	taskStore *store.TaskStore
-	manager   *worker.Manager
-	entryMap  map[string]cron.EntryID // task_id -> entry_id
+	cron        *cron.Cron
+	workerStore *store.WorkerStore
+	manager     *worker.Manager
+	entryMap    map[string]cron.EntryID // worker_id -> entry_id
 }
 
-func New(ts *store.TaskStore, mgr *worker.Manager) *Scheduler {
+func New(ws *store.WorkerStore, mgr *worker.Manager) *Scheduler {
 	return &Scheduler{
-		cron:      cron.New(),
-		taskStore: ts,
-		manager:   mgr,
-		entryMap:  make(map[string]cron.EntryID),
+		cron:        cron.New(),
+		workerStore: ws,
+		manager:     mgr,
+		entryMap:    make(map[string]cron.EntryID),
 	}
 }
 
 func (s *Scheduler) Start() error {
-	// Load existing cron tasks
-	tasks, err := s.taskStore.ListCronTasks()
+	workers, err := s.workerStore.ListCronWorkers()
 	if err != nil {
 		return err
 	}
 
-	for _, task := range tasks {
-		if err := s.AddTask(task.ID, task.CronExpression); err != nil {
-			log.Printf("failed to schedule task %s: %v", task.ID, err)
+	for _, w := range workers {
+		if err := s.AddWorker(w.ID, w.CronExpression); err != nil {
+			log.Printf("failed to schedule worker %s: %v", w.ID, err)
 		}
 	}
 
 	s.cron.Start()
-	log.Printf("Scheduler started with %d cron tasks", len(tasks))
+	log.Printf("Scheduler started with %d cron workers", len(workers))
 	return nil
 }
 
-func (s *Scheduler) AddTask(taskID, cronExpr string) error {
-	// Remove existing entry if any
-	s.RemoveTask(taskID)
+func (s *Scheduler) AddWorker(workerID, cronExpr string) error {
+	s.RemoveWorker(workerID)
 
 	id, err := s.cron.AddFunc(cronExpr, func() {
-		log.Printf("Cron triggered task %s", taskID)
-		if _, err := s.manager.ExecuteTask(context.Background(), taskID); err != nil {
-			log.Printf("failed to execute cron task %s: %v", taskID, err)
+		log.Printf("Cron triggered worker %s", workerID)
+		if _, err := s.manager.ExecuteWorker(context.Background(), workerID, "scheduled"); err != nil {
+			log.Printf("failed to execute cron worker %s: %v", workerID, err)
 		}
 	})
 	if err != nil {
 		return err
 	}
 
-	s.entryMap[taskID] = id
+	s.entryMap[workerID] = id
 	return nil
 }
 
-func (s *Scheduler) RemoveTask(taskID string) {
-	if entryID, ok := s.entryMap[taskID]; ok {
+func (s *Scheduler) RemoveWorker(workerID string) {
+	if entryID, ok := s.entryMap[workerID]; ok {
 		s.cron.Remove(entryID)
-		delete(s.entryMap, taskID)
+		delete(s.entryMap, workerID)
 	}
 }
 

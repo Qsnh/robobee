@@ -10,7 +10,6 @@ import (
 type Server struct {
 	router         *gin.Engine
 	workerStore    *store.WorkerStore
-	taskStore      *store.TaskStore
 	executionStore *store.ExecutionStore
 	emailStore     *store.EmailStore
 	memoryStore    *store.MemoryStore
@@ -19,7 +18,6 @@ type Server struct {
 
 func NewServer(
 	ws *store.WorkerStore,
-	ts *store.TaskStore,
 	es *store.ExecutionStore,
 	emailS *store.EmailStore,
 	ms *store.MemoryStore,
@@ -37,7 +35,6 @@ func NewServer(
 	s := &Server{
 		router:         router,
 		workerStore:    ws,
-		taskStore:      ts,
 		executionStore: es,
 		emailStore:     emailS,
 		memoryStore:    ms,
@@ -57,21 +54,17 @@ func (s *Server) setupRoutes() {
 		api.PUT("/workers/:id", s.updateWorker)
 		api.DELETE("/workers/:id", s.deleteWorker)
 
-		// Tasks
-		api.POST("/workers/:id/tasks", s.createTask)
-		api.GET("/workers/:id/tasks", s.listTasks)
-		api.PUT("/tasks/:id", s.updateTask)
-		api.DELETE("/tasks/:id", s.deleteTask)
+		// Worker message trigger
+		api.POST("/workers/:id/message", s.sendMessage)
+
+		// Worker executions
+		api.GET("/workers/:id/executions", s.listWorkerExecutions)
 
 		// Executions
-		api.POST("/tasks/:id/execute", s.executeTask)
 		api.GET("/executions", s.listExecutions)
 		api.GET("/executions/:id", s.getExecution)
 		api.POST("/executions/:id/approve", s.approveExecution)
 		api.POST("/executions/:id/reject", s.rejectExecution)
-
-		// Message trigger
-		api.POST("/workers/:id/message", s.sendMessage)
 
 		// Emails
 		api.GET("/executions/:id/emails", s.listEmails)
