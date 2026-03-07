@@ -24,6 +24,7 @@ func (r *ClaudeRuntime) Execute(ctx context.Context, workDir string, plan string
 
 	r.cmd = exec.CommandContext(ctx, r.binary,
 		"--dangerously-skip-permissions",
+		"--verbose",
 		"-p", plan,
 		"--output-format", "stream-json",
 	)

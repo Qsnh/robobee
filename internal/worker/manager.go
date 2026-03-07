@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"time"
 
 	"github.com/robobee/core/internal/config"
 	"github.com/robobee/core/internal/model"
@@ -93,17 +94,28 @@ func (m *Manager) ExecuteTask(ctx context.Context, taskID string) (model.TaskExe
 
 	// Create runtime based on worker type
 	var rt Runtime
+	var timeout time.Duration
 	switch worker.RuntimeType {
 	case model.RuntimeClaudeCode:
 		rt = NewClaudeRuntime(m.cfg.Runtime.ClaudeCode.Binary)
+		timeout = m.cfg.Runtime.ClaudeCode.Timeout
 	case model.RuntimeCodex:
 		rt = NewCodexRuntime(m.cfg.Runtime.Codex.Binary)
+		timeout = m.cfg.Runtime.Codex.Timeout
 	default:
 		return model.TaskExecution{}, fmt.Errorf("unknown runtime: %s", worker.RuntimeType)
 	}
 
+	// Decouple from caller context; apply configured timeout if set
+	execCtx := ctx
+	if timeout > 0 {
+		var cancel context.CancelFunc
+		execCtx, cancel = context.WithTimeout(ctx, timeout)
+		_ = cancel // cancel will be called when the subprocess exits via monitorExecution cleanup
+	}
+
 	// Start execution in background
-	outputCh, err := rt.Execute(ctx, worker.WorkDir, task.Plan)
+	outputCh, err := rt.Execute(execCtx, worker.WorkDir, task.Plan)
 	if err != nil {
 		m.executionStore.UpdateResult(exec.ID, err.Error(), model.ExecStatusFailed)
 		m.workerStore.UpdateStatus(worker.ID, model.WorkerStatusError)

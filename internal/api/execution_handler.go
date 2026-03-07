@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -15,7 +16,7 @@ var upgrader = websocket.Upgrader{
 func (s *Server) executeTask(c *gin.Context) {
 	taskID := c.Param("id")
 
-	exec, err := s.manager.ExecuteTask(c.Request.Context(), taskID)
+	exec, err := s.manager.ExecuteTask(context.Background(), taskID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -90,7 +91,7 @@ func (s *Server) sendMessage(c *gin.Context) {
 		taskID = tasks[0].ID
 	}
 
-	exec, err := s.manager.ExecuteTask(c.Request.Context(), taskID)
+	exec, err := s.manager.ExecuteTask(context.Background(), taskID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
