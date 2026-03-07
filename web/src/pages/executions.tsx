@@ -1,9 +1,5 @@
-"use client"
-
-import { useEffect, useState } from "react"
-import Link from "next/link"
-import { api } from "@/lib/api"
-import type { TaskExecution } from "@/lib/types"
+import { Link } from "react-router-dom"
+import { useExecutions } from "@/hooks/use-executions"
 import { Badge } from "@/components/ui/badge"
 import {
   Table,
@@ -24,18 +20,13 @@ const statusColor: Record<string, string> = {
   failed: "bg-red-100 text-red-800",
 }
 
-export default function ExecutionsPage() {
-  const [executions, setExecutions] = useState<TaskExecution[]>([])
-  const [error, setError] = useState("")
-
-  useEffect(() => {
-    api.executions.list().then(setExecutions).catch((e) => setError(e.message))
-  }, [])
+export function Executions() {
+  const { data: executions = [], error } = useExecutions()
 
   return (
     <div>
       <h1 className="text-2xl font-bold mb-6">Executions</h1>
-      {error && <p className="text-red-500 mb-4">{error}</p>}
+      {error && <p className="text-red-500 mb-4">{error.message}</p>}
 
       {executions.length === 0 && !error && (
         <p className="text-muted-foreground">No executions yet.</p>
@@ -57,7 +48,7 @@ export default function ExecutionsPage() {
               <TableRow key={e.id}>
                 <TableCell>
                   <Link
-                    href={`/executions/${e.id}`}
+                    to={`/executions/${e.id}`}
                     className="font-mono text-sm hover:underline"
                   >
                     {e.id.slice(0, 8)}...

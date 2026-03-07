@@ -1,9 +1,6 @@
-"use client"
-
 import { useEffect, useRef, useState } from "react"
-import { useParams } from "next/navigation"
-import { api } from "@/lib/api"
-import type { TaskExecution, Email } from "@/lib/types"
+import { useParams } from "react-router-dom"
+import { useExecution, useExecutionEmails, useApproveExecution, useRejectExecution } from "@/hooks/use-executions"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -25,23 +22,22 @@ interface LogEntry {
   content: string
 }
 
-export default function ExecutionDetailPage() {
+export function ExecutionDetail() {
   const { id } = useParams<{ id: string }>()
-  const [execution, setExecution] = useState<TaskExecution | null>(null)
-  const [emails, setEmails] = useState<Email[]>([])
+  const { data: execution, error: fetchError } = useExecution(id!)
+  const { data: emails = [] } = useExecutionEmails(id!)
+  const approveExecution = useApproveExecution()
+  const rejectExecution = useRejectExecution()
+
   const [logs, setLogs] = useState<LogEntry[]>([])
   const [feedback, setFeedback] = useState("")
   const [error, setError] = useState("")
   const logsEndRef = useRef<HTMLDivElement>(null)
 
-  useEffect(() => {
-    api.executions.get(id).then(setExecution).catch((e) => setError(e.message))
-    api.executions.emails(id).then(setEmails).catch(() => {})
-  }, [id])
-
   // WebSocket for live logs
   useEffect(() => {
-    const wsUrl = `ws://localhost:8080/api/executions/${id}/logs`
+    const wsBase = import.meta.env.VITE_API_URL || "http://localhost:8080/api"
+    const wsUrl = wsBase.replace(/^http/, "ws") + `/executions/${id}/logs`
     const ws = new WebSocket(wsUrl)
 
     ws.onmessage = (event) => {
@@ -62,10 +58,7 @@ export default function ExecutionDetailPage() {
 
   const handleApprove = async () => {
     try {
-      await api.executions.approve(id)
-      setExecution((prev) =>
-        prev ? { ...prev, status: "approved" } : prev
-      )
+      await approveExecution.mutateAsync(id!)
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Failed to approve")
     }
@@ -73,10 +66,7 @@ export default function ExecutionDetailPage() {
 
   const handleReject = async () => {
     try {
-      await api.executions.reject(id, feedback)
-      setExecution((prev) =>
-        prev ? { ...prev, status: "rejected" } : prev
-      )
+      await rejectExecution.mutateAsync({ id: id!, feedback })
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Failed to reject")
     }
@@ -96,7 +86,9 @@ export default function ExecutionDetailPage() {
         </Badge>
       </div>
 
-      {error && <p className="text-red-500 mb-4">{error}</p>}
+      {(error || fetchError) && (
+        <p className="text-red-500 mb-4">{error || fetchError?.message}</p>
+      )}
 
       {execution.status === "awaiting_approval" && (
         <Card className="mb-6 border-yellow-300">

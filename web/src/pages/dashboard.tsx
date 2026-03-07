@@ -1,9 +1,5 @@
-"use client"
-
-import { useEffect, useState } from "react"
-import Link from "next/link"
-import { api } from "@/lib/api"
-import type { Worker } from "@/lib/types"
+import { Link } from "react-router-dom"
+import { useWorkers } from "@/hooks/use-workers"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 
@@ -13,29 +9,24 @@ const statusColor: Record<string, string> = {
   error: "bg-red-100 text-red-800",
 }
 
-export default function Dashboard() {
-  const [workers, setWorkers] = useState<Worker[]>([])
-  const [error, setError] = useState("")
-
-  useEffect(() => {
-    api.workers.list().then(setWorkers).catch((e) => setError(e.message))
-  }, [])
+export function Dashboard() {
+  const { data: workers = [], error } = useWorkers()
 
   return (
     <div>
       <h1 className="text-2xl font-bold mb-6">Dashboard</h1>
-      {error && <p className="text-red-500 mb-4">{error}</p>}
+      {error && <p className="text-red-500 mb-4">{error.message}</p>}
       {workers.length === 0 && !error && (
         <p className="text-muted-foreground">
           No workers yet.{" "}
-          <Link href="/workers" className="underline">
+          <Link to="/workers" className="underline">
             Create one
           </Link>
         </p>
       )}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         {workers.map((w) => (
-          <Link key={w.id} href={`/workers/${w.id}`}>
+          <Link key={w.id} to={`/workers/${w.id}`}>
             <Card className="hover:shadow-md transition-shadow cursor-pointer">
               <CardHeader className="pb-2">
                 <div className="flex items-center justify-between">

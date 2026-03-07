@@ -1,10 +1,9 @@
-"use client"
-
-import { useEffect, useState } from "react"
-import { useParams } from "next/navigation"
-import Link from "next/link"
-import { api } from "@/lib/api"
-import type { Worker, Task } from "@/lib/types"
+import { useState } from "react"
+import { useParams, useNavigate } from "react-router-dom"
+import { useWorker } from "@/hooks/use-workers"
+import { useTasks, useCreateTask, useDeleteTask, useExecuteTask } from "@/hooks/use-tasks"
+import { useSendMessage } from "@/hooks/use-executions"
+import type { Task } from "@/lib/types"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -20,14 +19,20 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 
-export default function WorkerDetailPage() {
+export function WorkerDetail() {
   const { id } = useParams<{ id: string }>()
-  const [worker, setWorker] = useState<Worker | null>(null)
-  const [tasks, setTasks] = useState<Task[]>([])
-  const [error, setError] = useState("")
+  const navigate = useNavigate()
+  const { data: worker, error: workerError } = useWorker(id!)
+  const { data: tasks = [] } = useTasks(id!)
+  const createTask = useCreateTask(id!)
+  const deleteTask = useDeleteTask(id!)
+  const executeTask = useExecuteTask()
+  const sendMessage = useSendMessage()
+
   const [taskDialogOpen, setTaskDialogOpen] = useState(false)
   const [msgDialogOpen, setMsgDialogOpen] = useState(false)
   const [message, setMessage] = useState("")
+  const [error, setError] = useState("")
 
   // New task form
   const [taskName, setTaskName] = useState("")
@@ -37,17 +42,10 @@ export default function WorkerDetailPage() {
   const [taskCron, setTaskCron] = useState("")
   const [taskApproval, setTaskApproval] = useState(false)
 
-  const load = () => {
-    api.workers.get(id).then(setWorker).catch((e) => setError(e.message))
-    api.tasks.listByWorker(id).then(setTasks).catch(() => {})
-  }
-
-  useEffect(() => { load() }, [id])
-
   const handleCreateTask = async () => {
     try {
       const recipients = taskRecipients.split(",").map((r) => r.trim()).filter(Boolean)
-      await api.tasks.create(id, {
+      await createTask.mutateAsync({
         name: taskName,
         plan: taskPlan,
         trigger_type: taskTrigger as Task["trigger_type"],
@@ -59,7 +57,6 @@ export default function WorkerDetailPage() {
       setTaskName("")
       setTaskPlan("")
       setTaskRecipients("")
-      load()
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Failed to create task")
     }
@@ -67,8 +64,8 @@ export default function WorkerDetailPage() {
 
   const handleExecute = async (taskId: string) => {
     try {
-      const exec = await api.tasks.execute(taskId)
-      window.location.href = `/executions/${exec.id}`
+      const exec = await executeTask.mutateAsync(taskId)
+      navigate(`/executions/${exec.id}`)
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Failed to execute task")
     }
@@ -76,10 +73,10 @@ export default function WorkerDetailPage() {
 
   const handleSendMessage = async () => {
     try {
-      const exec = await api.message.send(id, message)
+      const exec = await sendMessage.mutateAsync({ workerId: id!, message })
       setMsgDialogOpen(false)
       setMessage("")
-      window.location.href = `/executions/${exec.id}`
+      navigate(`/executions/${exec.id}`)
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Failed to send message")
     }
@@ -119,7 +116,9 @@ export default function WorkerDetailPage() {
         </div>
       </div>
 
-      {error && <p className="text-red-500 mb-4">{error}</p>}
+      {(error || workerError) && (
+        <p className="text-red-500 mb-4">{error || workerError?.message}</p>
+      )}
 
       <Tabs defaultValue="tasks">
         <TabsList>
@@ -205,8 +204,7 @@ export default function WorkerDetailPage() {
                       size="sm"
                       variant="destructive"
                       onClick={async () => {
-                        await api.tasks.delete(t.id)
-                        load()
+                        await deleteTask.mutateAsync(t.id)
                       }}
                     >
                       Delete

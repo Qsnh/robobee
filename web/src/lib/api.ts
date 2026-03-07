@@ -1,6 +1,6 @@
 import type { Worker, Task, TaskExecution, Email } from "./types"
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080/api"
+const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:8080/api"
 
 async function fetchAPI<T>(path: string, options?: RequestInit): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, {

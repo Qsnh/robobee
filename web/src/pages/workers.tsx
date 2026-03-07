@@ -1,9 +1,6 @@
-"use client"
-
-import { useEffect, useState } from "react"
-import Link from "next/link"
-import { api } from "@/lib/api"
-import type { Worker } from "@/lib/types"
+import { useState } from "react"
+import { Link } from "react-router-dom"
+import { useWorkers, useCreateWorker, useDeleteWorker } from "@/hooks/use-workers"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -24,40 +21,27 @@ const statusColor: Record<string, string> = {
   error: "bg-red-100 text-red-800",
 }
 
-export default function WorkersPage() {
-  const [workers, setWorkers] = useState<Worker[]>([])
+export function Workers() {
+  const { data: workers = [], error: fetchError } = useWorkers()
+  const createWorker = useCreateWorker()
+  const deleteWorker = useDeleteWorker()
   const [open, setOpen] = useState(false)
   const [name, setName] = useState("")
   const [description, setDescription] = useState("")
   const [runtimeType, setRuntimeType] = useState("claude_code")
-  const [error, setError] = useState("")
 
-  const load = () => {
-    api.workers.list().then(setWorkers).catch((e) => setError(e.message))
-  }
-
-  useEffect(() => { load() }, [])
+  const error = fetchError?.message || createWorker.error?.message || deleteWorker.error?.message || ""
 
   const handleCreate = async () => {
-    try {
-      await api.workers.create({ name, description, runtime_type: runtimeType })
-      setOpen(false)
-      setName("")
-      setDescription("")
-      load()
-    } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "Failed to create worker")
-    }
+    await createWorker.mutateAsync({ name, description, runtime_type: runtimeType })
+    setOpen(false)
+    setName("")
+    setDescription("")
   }
 
   const handleDelete = async (id: string) => {
     if (!confirm("Delete this worker?")) return
-    try {
-      await api.workers.delete(id)
-      load()
-    } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "Failed to delete worker")
-    }
+    await deleteWorker.mutateAsync(id)
   }
 
   return (
@@ -118,7 +102,7 @@ export default function WorkersPage() {
           <Card key={w.id}>
             <CardHeader className="pb-2">
               <div className="flex items-center justify-between">
-                <Link href={`/workers/${w.id}`}>
+                <Link to={`/workers/${w.id}`}>
                   <CardTitle className="text-lg hover:underline">
                     {w.name}
                   </CardTitle>
@@ -134,7 +118,7 @@ export default function WorkersPage() {
               </p>
               <p className="text-xs text-muted-foreground">{w.email}</p>
               <div className="flex gap-2 mt-3">
-                <Link href={`/workers/${w.id}`}>
+                <Link to={`/workers/${w.id}`}>
                   <Button variant="outline" size="sm">
                     View
                   </Button>
