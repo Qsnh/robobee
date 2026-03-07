@@ -14,10 +14,11 @@ const (
 	ExecStatusFailed           ExecutionStatus = "failed"
 )
 
-type TaskExecution struct {
+type WorkerExecution struct {
 	ID           string          `json:"id" db:"id"`
-	TaskID       string          `json:"task_id" db:"task_id"`
+	WorkerID     string          `json:"worker_id" db:"worker_id"`
 	SessionID    string          `json:"session_id" db:"session_id"`
+	TriggerInput string          `json:"trigger_input,omitempty" db:"trigger_input"`
 	Status       ExecutionStatus `json:"status" db:"status"`
 	Result       string          `json:"result,omitempty" db:"result"`
 	AIProcessPID int             `json:"ai_process_pid,omitempty" db:"ai_process_pid"`
