@@ -1,0 +1,23 @@
+server:
+  port: 8080
+  host: 0.0.0.0
+
+smtp:
+  port: 2525
+  domain: robobee.local
+  system_cc: admin@company.com
+
+database:
+  path: ./data/robobee.db
+
+workers:
+  base_dir: ./data/workers
+  default_runtime: claude_code
+
+runtime:
+  claude_code:
+    binary: claude
+    timeout: 30m
+  codex:
+    binary: codex
+    timeout: 30m

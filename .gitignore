@@ -1,0 +1,4 @@
+data/robobee.db
+data/workers/
+*.exe
+/server
