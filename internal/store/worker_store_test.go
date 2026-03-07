@@ -1,0 +1,91 @@
+package store
+
+import (
+	"testing"
+
+	"github.com/robobee/core/internal/model"
+)
+
+func setupTestDB(t *testing.T) *WorkerStore {
+	t.Helper()
+	db, err := InitDB(t.TempDir() + "/test.db")
+	if err != nil {
+		t.Fatalf("InitDB: %v", err)
+	}
+	t.Cleanup(func() { db.Close() })
+	return NewWorkerStore(db)
+}
+
+func TestWorkerStore_Create(t *testing.T) {
+	s := setupTestDB(t)
+	w := model.Worker{
+		Name:        "TestBot",
+		Description: "A test worker",
+		Email:       "testbot@robobee.local",
+		RuntimeType: model.RuntimeClaudeCode,
+		WorkDir:     "/tmp/testbot",
+	}
+	created, err := s.Create(w)
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if created.ID == "" {
+		t.Error("expected non-empty ID")
+	}
+	if created.Status != model.WorkerStatusIdle {
+		t.Errorf("expected status idle, got %s", created.Status)
+	}
+}
+
+func TestWorkerStore_GetByID(t *testing.T) {
+	s := setupTestDB(t)
+	w, _ := s.Create(model.Worker{
+		Name: "Bot1", Email: "bot1@robobee.local",
+		RuntimeType: model.RuntimeClaudeCode, WorkDir: "/tmp/bot1",
+	})
+	got, err := s.GetByID(w.ID)
+	if err != nil {
+		t.Fatalf("GetByID: %v", err)
+	}
+	if got.Name != "Bot1" {
+		t.Errorf("expected Bot1, got %s", got.Name)
+	}
+}
+
+func TestWorkerStore_List(t *testing.T) {
+	s := setupTestDB(t)
+	s.Create(model.Worker{Name: "A", Email: "a@robobee.local", RuntimeType: model.RuntimeClaudeCode, WorkDir: "/tmp/a"})
+	s.Create(model.Worker{Name: "B", Email: "b@robobee.local", RuntimeType: model.RuntimeCodex, WorkDir: "/tmp/b"})
+	list, err := s.List()
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	if len(list) != 2 {
+		t.Errorf("expected 2 workers, got %d", len(list))
+	}
+}
+
+func TestWorkerStore_Update(t *testing.T) {
+	s := setupTestDB(t)
+	w, _ := s.Create(model.Worker{Name: "Old", Email: "old@robobee.local", RuntimeType: model.RuntimeClaudeCode, WorkDir: "/tmp/old"})
+	w.Name = "New"
+	updated, err := s.Update(w)
+	if err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+	if updated.Name != "New" {
+		t.Errorf("expected New, got %s", updated.Name)
+	}
+}
+
+func TestWorkerStore_Delete(t *testing.T) {
+	s := setupTestDB(t)
+	w, _ := s.Create(model.Worker{Name: "Del", Email: "del@robobee.local", RuntimeType: model.RuntimeClaudeCode, WorkDir: "/tmp/del"})
+	if err := s.Delete(w.ID); err != nil {
+		t.Fatalf("Delete: %v", err)
+	}
+	_, err := s.GetByID(w.ID)
+	if err == nil {
+		t.Error("expected error after delete")
+	}
+}
