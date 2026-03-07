@@ -5,7 +5,7 @@ import type { Task } from "@/lib/types"
 export function useTasks(workerId: string) {
   return useQuery({
     queryKey: ["tasks", workerId],
-    queryFn: () => api.tasks.listByWorker(workerId),
+    queryFn: async () => (await api.tasks.listByWorker(workerId)) ?? [],
   })
 }
 

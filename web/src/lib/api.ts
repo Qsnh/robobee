@@ -16,7 +16,10 @@ async function fetchAPI<T>(path: string, options?: RequestInit): Promise<T> {
 
 export const api = {
   workers: {
-    list: () => fetchAPI<Worker[]>("/workers"),
+    list: async () => {
+      const workers = await fetchAPI<Worker[] | null>("/workers")
+      return Array.isArray(workers) ? workers : []
+    },
     get: (id: string) => fetchAPI<Worker>(`/workers/${id}`),
     create: (data: { name: string; description: string; runtime_type: string }) =>
       fetchAPI<Worker>("/workers", { method: "POST", body: JSON.stringify(data) }),
@@ -25,7 +28,10 @@ export const api = {
     delete: (id: string) => fetchAPI(`/workers/${id}`, { method: "DELETE" }),
   },
   tasks: {
-    listByWorker: (workerId: string) => fetchAPI<Task[]>(`/workers/${workerId}/tasks`),
+    listByWorker: async (workerId: string) => {
+      const tasks = await fetchAPI<Task[] | null>(`/workers/${workerId}/tasks`)
+      return Array.isArray(tasks) ? tasks : []
+    },
     create: (workerId: string, data: Omit<Task, "id" | "worker_id" | "created_at" | "updated_at">) =>
       fetchAPI<Task>(`/workers/${workerId}/tasks`, { method: "POST", body: JSON.stringify(data) }),
     update: (id: string, data: Partial<Task>) =>
@@ -35,12 +41,18 @@ export const api = {
       fetchAPI<TaskExecution>(`/tasks/${id}/execute`, { method: "POST" }),
   },
   executions: {
-    list: () => fetchAPI<TaskExecution[]>("/executions"),
+    list: async () => {
+      const executions = await fetchAPI<TaskExecution[] | null>("/executions")
+      return Array.isArray(executions) ? executions : []
+    },
     get: (id: string) => fetchAPI<TaskExecution>(`/executions/${id}`),
     approve: (id: string) => fetchAPI(`/executions/${id}/approve`, { method: "POST" }),
     reject: (id: string, feedback: string) =>
       fetchAPI(`/executions/${id}/reject`, { method: "POST", body: JSON.stringify({ feedback }) }),
-    emails: (id: string) => fetchAPI<Email[]>(`/executions/${id}/emails`),
+    emails: async (id: string) => {
+      const emails = await fetchAPI<Email[] | null>(`/executions/${id}/emails`)
+      return Array.isArray(emails) ? emails : []
+    },
   },
   message: {
     send: (workerId: string, message: string, taskId?: string) =>
