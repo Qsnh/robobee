@@ -9,7 +9,6 @@ import (
 
 type Config struct {
 	Server   ServerConfig   `yaml:"server"`
-	SMTP     SMTPConfig     `yaml:"smtp"`
 	Database DatabaseConfig `yaml:"database"`
 	Workers  WorkersConfig  `yaml:"workers"`
 	Runtime  RuntimeConfig  `yaml:"runtime"`
@@ -18,12 +17,6 @@ type Config struct {
 type ServerConfig struct {
 	Port int    `yaml:"port"`
 	Host string `yaml:"host"`
-}
-
-type SMTPConfig struct {
-	Port     int    `yaml:"port"`
-	Domain   string `yaml:"domain"`
-	SystemCC string `yaml:"system_cc"`
 }
 
 type DatabaseConfig struct {

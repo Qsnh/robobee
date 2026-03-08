@@ -39,15 +39,6 @@ func (s *Server) getExecution(c *gin.Context) {
 	c.JSON(http.StatusOK, exec)
 }
 
-func (s *Server) listEmails(c *gin.Context) {
-	emails, err := s.emailStore.ListByExecutionID(c.Param("id"))
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-	c.JSON(http.StatusOK, emails)
-}
-
 func (s *Server) streamLogs(c *gin.Context) {
 	execID := c.Param("id")
 

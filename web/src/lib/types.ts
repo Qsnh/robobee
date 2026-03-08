@@ -7,11 +7,9 @@ export interface Worker {
   name: string
   description: string
   prompt: string
-  email: string
   runtime_type: RuntimeType
   work_dir: string
   cron_expression: string
-  recipients: string[]
   schedule_enabled: boolean
   status: WorkerStatus
   created_at: string
@@ -28,17 +26,4 @@ export interface WorkerExecution {
   ai_process_pid: number
   started_at: string | null
   completed_at: string | null
-}
-
-export interface Email {
-  id: string
-  execution_id: string
-  from_addr: string
-  to_addr: string
-  cc_addr: string
-  subject: string
-  body: string
-  in_reply_to: string
-  direction: "inbound" | "outbound"
-  created_at: string
 }

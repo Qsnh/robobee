@@ -2,7 +2,6 @@ package worker
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"log"
 	"os"
@@ -19,10 +18,9 @@ type Manager struct {
 	cfg            config.Config
 	workerStore    *store.WorkerStore
 	executionStore *store.ExecutionStore
-	emailStore     *store.EmailStore
 	memoryStore    *store.MemoryStore
 
-	activeRuntimes map[string]Runtime     // execution_id -> runtime
+	activeRuntimes map[string]Runtime       // execution_id -> runtime
 	logSubscribers map[string][]chan Output // execution_id -> subscribers
 	mu             sync.RWMutex
 }
@@ -31,14 +29,12 @@ func NewManager(
 	cfg config.Config,
 	ws *store.WorkerStore,
 	es *store.ExecutionStore,
-	emailS *store.EmailStore,
 	ms *store.MemoryStore,
 ) *Manager {
 	return &Manager{
 		cfg:            cfg,
 		workerStore:    ws,
 		executionStore: es,
-		emailStore:     emailS,
 		memoryStore:    ms,
 		activeRuntimes: make(map[string]Runtime),
 		logSubscribers: make(map[string][]chan Output),
@@ -49,10 +45,8 @@ func (m *Manager) CreateWorker(
 	name, description, prompt string,
 	runtimeType model.RuntimeType,
 	cronExpression string,
-	recipients []string,
 	scheduleEnabled bool,
 ) (model.Worker, error) {
-	email := fmt.Sprintf("%s@%s", name, m.cfg.SMTP.Domain)
 	workDir := filepath.Join(m.cfg.Workers.BaseDir, name)
 
 	if err := os.MkdirAll(workDir, 0755); err != nil {
@@ -66,17 +60,13 @@ func (m *Manager) CreateWorker(
 		return model.Worker{}, fmt.Errorf("create CLAUDE.md: %w", err)
 	}
 
-	recipientsJSON, _ := json.Marshal(recipients)
-
 	return m.workerStore.Create(model.Worker{
 		Name:            name,
 		Description:     description,
 		Prompt:          prompt,
-		Email:           email,
 		RuntimeType:     runtimeType,
 		WorkDir:         workDir,
 		CronExpression:  cronExpression,
-		Recipients:      recipientsJSON,
 		ScheduleEnabled: scheduleEnabled,
 	})
 }

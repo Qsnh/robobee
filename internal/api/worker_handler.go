@@ -2,7 +2,6 @@ package api
 
 import (
 	"context"
-	"encoding/json"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -15,7 +14,6 @@ type createWorkerRequest struct {
 	Prompt          string            `json:"prompt"`
 	RuntimeType     model.RuntimeType `json:"runtime_type"`
 	CronExpression  string            `json:"cron_expression"`
-	Recipients      []string          `json:"recipients"`
 	ScheduleEnabled bool              `json:"schedule_enabled"`
 }
 
@@ -41,14 +39,10 @@ func (s *Server) createWorker(c *gin.Context) {
 		}
 	}
 
-	if req.Recipients == nil {
-		req.Recipients = []string{}
-	}
-
 	w, err := s.manager.CreateWorker(
 		req.Name, req.Description, req.Prompt,
 		req.RuntimeType,
-		req.CronExpression, req.Recipients, req.ScheduleEnabled,
+		req.CronExpression, req.ScheduleEnabled,
 	)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -89,7 +83,6 @@ func (s *Server) updateWorker(c *gin.Context) {
 		Prompt          string            `json:"prompt"`
 		RuntimeType     model.RuntimeType `json:"runtime_type"`
 		CronExpression  string            `json:"cron_expression"`
-		Recipients      []string          `json:"recipients"`
 		ScheduleEnabled *bool             `json:"schedule_enabled"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -111,10 +104,6 @@ func (s *Server) updateWorker(c *gin.Context) {
 	}
 	if req.CronExpression != "" {
 		w.CronExpression = req.CronExpression
-	}
-	if req.Recipients != nil {
-		recipients, _ := json.Marshal(req.Recipients)
-		w.Recipients = recipients
 	}
 	if req.ScheduleEnabled != nil {
 		w.ScheduleEnabled = *req.ScheduleEnabled

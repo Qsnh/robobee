@@ -32,12 +32,10 @@ export function Workers() {
   const [runtimeType, setRuntimeType] = useState("claude_code")
   const [scheduleEnabled, setScheduleEnabled] = useState(false)
   const [cronExpression, setCronExpression] = useState("")
-  const [recipients, setRecipients] = useState("")
 
   const error = fetchError?.message || createWorker.error?.message || deleteWorker.error?.message || ""
 
   const handleCreate = async () => {
-    const recipientList = recipients.split(",").map((r) => r.trim()).filter(Boolean)
     await createWorker.mutateAsync({
       name,
       description,
@@ -45,7 +43,6 @@ export function Workers() {
       runtime_type: runtimeType,
       schedule_enabled: scheduleEnabled || undefined,
       cron_expression: scheduleEnabled ? cronExpression : undefined,
-      recipients: recipientList.length > 0 ? recipientList : undefined,
     })
     setOpen(false)
     setName("")
@@ -53,7 +50,6 @@ export function Workers() {
     setPrompt("")
     setScheduleEnabled(false)
     setCronExpression("")
-    setRecipients("")
   }
 
   const handleDelete = async (id: string) => {
@@ -148,15 +144,6 @@ export function Workers() {
                   />
                 </div>
               )}
-              <div>
-                <Label htmlFor="recipients">Recipients (comma-separated emails)</Label>
-                <Input
-                  id="recipients"
-                  value={recipients}
-                  onChange={(e) => setRecipients(e.target.value)}
-                  placeholder="user@example.com, admin@example.com"
-                />
-              </div>
               <Button onClick={handleCreate} className="w-full">
                 Create
               </Button>
@@ -186,8 +173,7 @@ export function Workers() {
               <p className="text-sm text-muted-foreground mb-2">
                 {w.description || "No description"}
               </p>
-              <p className="text-xs text-muted-foreground">{w.email}</p>
-              <p className="text-xs text-muted-foreground mt-1">
+              <p className="text-xs text-muted-foreground">
                 {w.schedule_enabled ? `Schedule: ${w.cron_expression}` : "On-demand"}
               </p>
               <div className="flex gap-2 mt-3">

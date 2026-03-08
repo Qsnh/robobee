@@ -21,7 +21,6 @@ func TestWorkerStore_Create(t *testing.T) {
 	w := model.Worker{
 		Name:        "TestBot",
 		Description: "A test worker",
-		Email:       "testbot@robobee.local",
 		RuntimeType: model.RuntimeClaudeCode,
 		WorkDir:     "/tmp/testbot",
 	}
@@ -40,8 +39,7 @@ func TestWorkerStore_Create(t *testing.T) {
 func TestWorkerStore_GetByID(t *testing.T) {
 	s := setupTestDB(t)
 	w, _ := s.Create(model.Worker{
-		Name: "Bot1", Email: "bot1@robobee.local",
-		RuntimeType: model.RuntimeClaudeCode, WorkDir: "/tmp/bot1",
+		Name: "Bot1", 		RuntimeType: model.RuntimeClaudeCode, WorkDir: "/tmp/bot1",
 	})
 	got, err := s.GetByID(w.ID)
 	if err != nil {
@@ -54,8 +52,8 @@ func TestWorkerStore_GetByID(t *testing.T) {
 
 func TestWorkerStore_List(t *testing.T) {
 	s := setupTestDB(t)
-	s.Create(model.Worker{Name: "A", Email: "a@robobee.local", RuntimeType: model.RuntimeClaudeCode, WorkDir: "/tmp/a"})
-	s.Create(model.Worker{Name: "B", Email: "b@robobee.local", RuntimeType: model.RuntimeCodex, WorkDir: "/tmp/b"})
+	s.Create(model.Worker{Name: "A", RuntimeType: model.RuntimeClaudeCode, WorkDir: "/tmp/a"})
+	s.Create(model.Worker{Name: "B", RuntimeType: model.RuntimeCodex, WorkDir: "/tmp/b"})
 	list, err := s.List()
 	if err != nil {
 		t.Fatalf("List: %v", err)
@@ -67,7 +65,7 @@ func TestWorkerStore_List(t *testing.T) {
 
 func TestWorkerStore_Update(t *testing.T) {
 	s := setupTestDB(t)
-	w, _ := s.Create(model.Worker{Name: "Old", Email: "old@robobee.local", RuntimeType: model.RuntimeClaudeCode, WorkDir: "/tmp/old"})
+	w, _ := s.Create(model.Worker{Name: "Old", RuntimeType: model.RuntimeClaudeCode, WorkDir: "/tmp/old"})
 	w.Name = "New"
 	updated, err := s.Update(w)
 	if err != nil {
@@ -80,7 +78,7 @@ func TestWorkerStore_Update(t *testing.T) {
 
 func TestWorkerStore_Delete(t *testing.T) {
 	s := setupTestDB(t)
-	w, _ := s.Create(model.Worker{Name: "Del", Email: "del@robobee.local", RuntimeType: model.RuntimeClaudeCode, WorkDir: "/tmp/del"})
+	w, _ := s.Create(model.Worker{Name: "Del", RuntimeType: model.RuntimeClaudeCode, WorkDir: "/tmp/del"})
 	if err := s.Delete(w.ID); err != nil {
 		t.Fatalf("Delete: %v", err)
 	}

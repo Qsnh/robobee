@@ -40,8 +40,7 @@ export function Dashboard() {
                 <p className="text-sm text-muted-foreground mb-1">
                   {w.description || "No description"}
                 </p>
-                <p className="text-xs text-muted-foreground">{w.email}</p>
-                <p className="text-xs text-muted-foreground mt-1">
+                <p className="text-xs text-muted-foreground">
                   Runtime: {w.runtime_type} | {w.schedule_enabled ? `Schedule: ${w.cron_expression}` : "On-demand"}
                 </p>
               </CardContent>

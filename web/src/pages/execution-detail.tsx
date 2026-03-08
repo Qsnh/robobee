@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react"
 import { useParams, Link } from "react-router-dom"
-import { useExecution, useExecutionEmails } from "@/hooks/use-executions"
+import { useExecution } from "@/hooks/use-executions"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
@@ -20,8 +20,6 @@ interface LogEntry {
 export function ExecutionDetail() {
   const { id } = useParams<{ id: string }>()
   const { data: execution, error: fetchError } = useExecution(id!)
-  const { data: emails = [] } = useExecutionEmails(id!)
-
   const [logs, setLogs] = useState<LogEntry[]>([])
   const logsEndRef = useRef<HTMLDivElement>(null)
 
@@ -66,8 +64,7 @@ export function ExecutionDetail() {
         <TabsList>
           <TabsTrigger value="logs">Logs</TabsTrigger>
           <TabsTrigger value="result">Result</TabsTrigger>
-          <TabsTrigger value="emails">Emails</TabsTrigger>
-          <TabsTrigger value="info">Info</TabsTrigger>
+<TabsTrigger value="info">Info</TabsTrigger>
         </TabsList>
 
         <TabsContent value="logs" className="mt-4">
@@ -105,31 +102,6 @@ export function ExecutionDetail() {
               </pre>
             </CardContent>
           </Card>
-        </TabsContent>
-
-        <TabsContent value="emails" className="mt-4">
-          {emails.length === 0 && (
-            <p className="text-muted-foreground">No emails for this execution.</p>
-          )}
-          <div className="space-y-3">
-            {emails.map((e) => (
-              <Card key={e.id}>
-                <CardHeader className="pb-2">
-                  <div className="flex items-center justify-between">
-                    <CardTitle className="text-sm">{e.subject}</CardTitle>
-                    <Badge variant="outline">{e.direction}</Badge>
-                  </div>
-                </CardHeader>
-                <CardContent>
-                  <p className="text-xs text-muted-foreground mb-2">
-                    From: {e.from_addr} | To: {e.to_addr}
-                    {e.cc_addr && ` | CC: ${e.cc_addr}`}
-                  </p>
-                  <pre className="whitespace-pre-wrap text-sm">{e.body}</pre>
-                </CardContent>
-              </Card>
-            ))}
-          </div>
         </TabsContent>
 
         <TabsContent value="info" className="mt-4">

@@ -58,7 +58,7 @@ export function WorkerDetail() {
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-2xl font-bold">{worker.name}</h1>
-          <p className="text-muted-foreground">{worker.email}</p>
+          <p className="text-muted-foreground">{worker.description}</p>
         </div>
         <div className="flex gap-2 items-center">
           <Badge className={statusColor[worker.status] || ""}>{worker.status}</Badge>

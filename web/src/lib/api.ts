@@ -1,4 +1,4 @@
-import type { Worker, WorkerExecution, Email } from "./types"
+import type { Worker, WorkerExecution } from "./types"
 
 const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:8080/api"
 
@@ -27,7 +27,6 @@ export const api = {
       prompt?: string
       runtime_type: string
       cron_expression?: string
-      recipients?: string[]
       schedule_enabled?: boolean
     }) => fetchAPI<Worker>("/workers", { method: "POST", body: JSON.stringify(data) }),
     update: (id: string, data: Partial<Worker>) =>
@@ -44,10 +43,6 @@ export const api = {
       return Array.isArray(executions) ? executions : []
     },
     get: (id: string) => fetchAPI<WorkerExecution>(`/executions/${id}`),
-    emails: async (id: string) => {
-      const emails = await fetchAPI<Email[] | null>(`/executions/${id}/emails`)
-      return Array.isArray(emails) ? emails : []
-    },
   },
   message: {
     send: (workerId: string, message: string) =>

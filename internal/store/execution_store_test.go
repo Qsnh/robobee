@@ -1,7 +1,6 @@
 package store
 
 import (
-	"encoding/json"
 	"testing"
 
 	"github.com/robobee/core/internal/model"
@@ -17,8 +16,7 @@ func TestExecutionStore_CreateAndGet(t *testing.T) {
 	ws := NewWorkerStore(db)
 	es := NewExecutionStore(db)
 
-	recipients, _ := json.Marshal([]string{"user@example.com"})
-	w, _ := ws.Create(model.Worker{Name: "Bot", Email: "bot@robobee.local", RuntimeType: model.RuntimeClaudeCode, WorkDir: "/tmp/bot", Recipients: recipients})
+	w, _ := ws.Create(model.Worker{Name: "Bot", RuntimeType: model.RuntimeClaudeCode, WorkDir: "/tmp/bot"})
 
 	exec, err := es.Create(w.ID, "test message")
 	if err != nil {
@@ -50,8 +48,7 @@ func TestExecutionStore_UpdateStatus(t *testing.T) {
 	ws := NewWorkerStore(db)
 	es := NewExecutionStore(db)
 
-	recipients, _ := json.Marshal([]string{"user@example.com"})
-	w, _ := ws.Create(model.Worker{Name: "Bot", Email: "bot@robobee.local", RuntimeType: model.RuntimeClaudeCode, WorkDir: "/tmp/bot", Recipients: recipients})
+	w, _ := ws.Create(model.Worker{Name: "Bot", RuntimeType: model.RuntimeClaudeCode, WorkDir: "/tmp/bot"})
 	exec, _ := es.Create(w.ID, "test message")
 
 	err = es.UpdateStatus(exec.ID, model.ExecStatusRunning)
@@ -74,8 +71,7 @@ func TestExecutionStore_GetBySessionID(t *testing.T) {
 	ws := NewWorkerStore(db)
 	es := NewExecutionStore(db)
 
-	recipients, _ := json.Marshal([]string{"user@example.com"})
-	w, _ := ws.Create(model.Worker{Name: "Bot", Email: "bot@robobee.local", RuntimeType: model.RuntimeClaudeCode, WorkDir: "/tmp/bot", Recipients: recipients})
+	w, _ := ws.Create(model.Worker{Name: "Bot", RuntimeType: model.RuntimeClaudeCode, WorkDir: "/tmp/bot"})
 	exec, _ := es.Create(w.ID, "test message")
 
 	got, err := es.GetBySessionID(exec.SessionID)

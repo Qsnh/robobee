@@ -11,7 +11,6 @@ type Server struct {
 	router         *gin.Engine
 	workerStore    *store.WorkerStore
 	executionStore *store.ExecutionStore
-	emailStore     *store.EmailStore
 	memoryStore    *store.MemoryStore
 	manager        *worker.Manager
 }
@@ -19,7 +18,6 @@ type Server struct {
 func NewServer(
 	ws *store.WorkerStore,
 	es *store.ExecutionStore,
-	emailS *store.EmailStore,
 	ms *store.MemoryStore,
 	mgr *worker.Manager,
 ) *Server {
@@ -36,7 +34,6 @@ func NewServer(
 		router:         router,
 		workerStore:    ws,
 		executionStore: es,
-		emailStore:     emailS,
 		memoryStore:    ms,
 		manager:        mgr,
 	}
@@ -63,9 +60,6 @@ func (s *Server) setupRoutes() {
 		// Executions
 		api.GET("/executions", s.listExecutions)
 		api.GET("/executions/:id", s.getExecution)
-		// Emails
-		api.GET("/executions/:id/emails", s.listEmails)
-
 		// WebSocket logs
 		api.GET("/executions/:id/logs", s.streamLogs)
 	}

@@ -9,7 +9,6 @@ import (
 
 	"github.com/robobee/core/internal/api"
 	"github.com/robobee/core/internal/config"
-	"github.com/robobee/core/internal/mail"
 	"github.com/robobee/core/internal/scheduler"
 	"github.com/robobee/core/internal/store"
 	"github.com/robobee/core/internal/worker"
@@ -36,22 +35,10 @@ func main() {
 	// Create stores
 	workerStore := store.NewWorkerStore(db)
 	execStore := store.NewExecutionStore(db)
-	emailStore := store.NewEmailStore(db)
 	memoryStore := store.NewMemoryStore(db)
 
 	// Create worker manager
-	mgr := worker.NewManager(cfg, workerStore, execStore, emailStore, memoryStore)
-
-	// Create email sender
-	_ = mail.NewSender(cfg.SMTP, emailStore)
-
-	// Start SMTP server
-	smtpSrv := mail.NewSMTPServer(cfg.SMTP, execStore, emailStore, workerStore)
-	go func() {
-		if err := smtpSrv.Start(); err != nil {
-			log.Printf("SMTP server error: %v", err)
-		}
-	}()
+	mgr := worker.NewManager(cfg, workerStore, execStore, memoryStore)
 
 	// Start cron scheduler
 	sched := scheduler.New(workerStore, mgr)
@@ -60,7 +47,7 @@ func main() {
 	}
 
 	// Start HTTP API
-	srv := api.NewServer(workerStore, execStore, emailStore, memoryStore, mgr)
+	srv := api.NewServer(workerStore, execStore, memoryStore, mgr)
 
 	// Graceful shutdown
 	quit := make(chan os.Signal, 1)
@@ -68,7 +55,6 @@ func main() {
 	go func() {
 		<-quit
 		log.Println("Shutting down...")
-		smtpSrv.Close()
 		sched.Stop()
 		db.Close()
 		os.Exit(0)

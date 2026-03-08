@@ -24,7 +24,6 @@ func migrate(db *sql.DB) error {
 	// Drop old tables to rebuild schema (dev only, no production data)
 	drops := []string{
 		"DROP TABLE IF EXISTS worker_memories",
-		"DROP TABLE IF EXISTS emails",
 		"DROP TABLE IF EXISTS task_executions",
 		"DROP TABLE IF EXISTS tasks",
 		"DROP TABLE IF EXISTS worker_executions",
@@ -42,11 +41,9 @@ func migrate(db *sql.DB) error {
 		name TEXT NOT NULL,
 		description TEXT NOT NULL DEFAULT '',
 		prompt TEXT NOT NULL DEFAULT '',
-		email TEXT NOT NULL UNIQUE,
 		runtime_type TEXT NOT NULL DEFAULT 'claude_code',
 		work_dir TEXT NOT NULL,
 		cron_expression TEXT NOT NULL DEFAULT '',
-		recipients TEXT NOT NULL DEFAULT '[]',
 		schedule_enabled INTEGER NOT NULL DEFAULT 0,
 		status TEXT NOT NULL DEFAULT 'idle',
 		created_at DATETIME NOT NULL DEFAULT (datetime('now')),
@@ -64,20 +61,6 @@ func migrate(db *sql.DB) error {
 		started_at DATETIME,
 		completed_at DATETIME,
 		FOREIGN KEY (worker_id) REFERENCES workers(id) ON DELETE CASCADE
-	);
-
-	CREATE TABLE IF NOT EXISTS emails (
-		id TEXT PRIMARY KEY,
-		execution_id TEXT NOT NULL,
-		from_addr TEXT NOT NULL,
-		to_addr TEXT NOT NULL,
-		cc_addr TEXT NOT NULL DEFAULT '',
-		subject TEXT NOT NULL,
-		body TEXT NOT NULL,
-		in_reply_to TEXT NOT NULL DEFAULT '',
-		direction TEXT NOT NULL,
-		created_at DATETIME NOT NULL DEFAULT (datetime('now')),
-		FOREIGN KEY (execution_id) REFERENCES worker_executions(id) ON DELETE CASCADE
 	);
 
 	CREATE TABLE IF NOT EXISTS worker_memories (

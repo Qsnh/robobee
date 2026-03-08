@@ -15,13 +15,6 @@ export function useExecution(id: string) {
   })
 }
 
-export function useExecutionEmails(id: string) {
-  return useQuery({
-    queryKey: ["executions", id, "emails"],
-    queryFn: () => api.executions.emails(id),
-  })
-}
-
 export function useSendMessage() {
   return useMutation({
     mutationFn: ({ workerId, message }: { workerId: string; message: string }) =>
