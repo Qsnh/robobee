@@ -18,7 +18,7 @@ func TestExecutionStore_CreateAndGet(t *testing.T) {
 	es := NewExecutionStore(db)
 
 	recipients, _ := json.Marshal([]string{"user@example.com"})
-	w, _ := ws.Create(model.Worker{Name: "Bot", Email: "bot@robobee.local", RuntimeType: model.RuntimeClaudeCode, WorkDir: "/tmp/bot", TriggerType: model.TriggerMessage, Recipients: recipients})
+	w, _ := ws.Create(model.Worker{Name: "Bot", Email: "bot@robobee.local", RuntimeType: model.RuntimeClaudeCode, WorkDir: "/tmp/bot", Recipients: recipients})
 
 	exec, err := es.Create(w.ID, "test message")
 	if err != nil {
@@ -51,7 +51,7 @@ func TestExecutionStore_UpdateStatus(t *testing.T) {
 	es := NewExecutionStore(db)
 
 	recipients, _ := json.Marshal([]string{"user@example.com"})
-	w, _ := ws.Create(model.Worker{Name: "Bot", Email: "bot@robobee.local", RuntimeType: model.RuntimeClaudeCode, WorkDir: "/tmp/bot", TriggerType: model.TriggerMessage, Recipients: recipients})
+	w, _ := ws.Create(model.Worker{Name: "Bot", Email: "bot@robobee.local", RuntimeType: model.RuntimeClaudeCode, WorkDir: "/tmp/bot", Recipients: recipients})
 	exec, _ := es.Create(w.ID, "test message")
 
 	err = es.UpdateStatus(exec.ID, model.ExecStatusRunning)
@@ -75,7 +75,7 @@ func TestExecutionStore_GetBySessionID(t *testing.T) {
 	es := NewExecutionStore(db)
 
 	recipients, _ := json.Marshal([]string{"user@example.com"})
-	w, _ := ws.Create(model.Worker{Name: "Bot", Email: "bot@robobee.local", RuntimeType: model.RuntimeClaudeCode, WorkDir: "/tmp/bot", TriggerType: model.TriggerMessage, Recipients: recipients})
+	w, _ := ws.Create(model.Worker{Name: "Bot", Email: "bot@robobee.local", RuntimeType: model.RuntimeClaudeCode, WorkDir: "/tmp/bot", Recipients: recipients})
 	exec, _ := es.Create(w.ID, "test message")
 
 	got, err := es.GetBySessionID(exec.SessionID)

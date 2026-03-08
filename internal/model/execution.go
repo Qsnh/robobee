@@ -5,13 +5,10 @@ import "time"
 type ExecutionStatus string
 
 const (
-	ExecStatusPending          ExecutionStatus = "pending"
-	ExecStatusRunning          ExecutionStatus = "running"
-	ExecStatusAwaitingApproval ExecutionStatus = "awaiting_approval"
-	ExecStatusApproved         ExecutionStatus = "approved"
-	ExecStatusRejected         ExecutionStatus = "rejected"
-	ExecStatusCompleted        ExecutionStatus = "completed"
-	ExecStatusFailed           ExecutionStatus = "failed"
+	ExecStatusPending   ExecutionStatus = "pending"
+	ExecStatusRunning   ExecutionStatus = "running"
+	ExecStatusCompleted ExecutionStatus = "completed"
+	ExecStatusFailed    ExecutionStatus = "failed"
 )
 
 type WorkerExecution struct {

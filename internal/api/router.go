@@ -63,9 +63,6 @@ func (s *Server) setupRoutes() {
 		// Executions
 		api.GET("/executions", s.listExecutions)
 		api.GET("/executions/:id", s.getExecution)
-		api.POST("/executions/:id/approve", s.approveExecution)
-		api.POST("/executions/:id/reject", s.rejectExecution)
-
 		// Emails
 		api.GET("/executions/:id/emails", s.listEmails)
 

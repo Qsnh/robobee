@@ -20,26 +20,18 @@ const (
 	WorkerStatusError   WorkerStatus = "error"
 )
 
-type TriggerType string
-
-const (
-	TriggerCron    TriggerType = "cron"
-	TriggerMessage TriggerType = "message"
-)
-
 type Worker struct {
-	ID               string          `json:"id" db:"id"`
-	Name             string          `json:"name" db:"name"`
-	Description      string          `json:"description" db:"description"`
-	Prompt           string          `json:"prompt" db:"prompt"`
-	Email            string          `json:"email" db:"email"`
-	RuntimeType      RuntimeType     `json:"runtime_type" db:"runtime_type"`
-	WorkDir          string          `json:"work_dir" db:"work_dir"`
-	TriggerType      TriggerType     `json:"trigger_type" db:"trigger_type"`
-	CronExpression   string          `json:"cron_expression,omitempty" db:"cron_expression"`
-	Recipients       json.RawMessage `json:"recipients" db:"recipients"`
-	RequiresApproval bool            `json:"requires_approval" db:"requires_approval"`
-	Status           WorkerStatus    `json:"status" db:"status"`
-	CreatedAt        time.Time       `json:"created_at" db:"created_at"`
-	UpdatedAt        time.Time       `json:"updated_at" db:"updated_at"`
+	ID              string          `json:"id" db:"id"`
+	Name            string          `json:"name" db:"name"`
+	Description     string          `json:"description" db:"description"`
+	Prompt          string          `json:"prompt" db:"prompt"`
+	Email           string          `json:"email" db:"email"`
+	RuntimeType     RuntimeType     `json:"runtime_type" db:"runtime_type"`
+	WorkDir         string          `json:"work_dir" db:"work_dir"`
+	CronExpression  string          `json:"cron_expression,omitempty" db:"cron_expression"`
+	Recipients      json.RawMessage `json:"recipients" db:"recipients"`
+	ScheduleEnabled bool            `json:"schedule_enabled" db:"schedule_enabled"`
+	Status          WorkerStatus    `json:"status" db:"status"`
+	CreatedAt       time.Time       `json:"created_at" db:"created_at"`
+	UpdatedAt       time.Time       `json:"updated_at" db:"updated_at"`
 }

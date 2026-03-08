@@ -26,7 +26,7 @@ func New(ws *store.WorkerStore, mgr *worker.Manager) *Scheduler {
 }
 
 func (s *Scheduler) Start() error {
-	workers, err := s.workerStore.ListCronWorkers()
+	workers, err := s.workerStore.ListScheduledWorkers()
 	if err != nil {
 		return err
 	}
@@ -38,7 +38,7 @@ func (s *Scheduler) Start() error {
 	}
 
 	s.cron.Start()
-	log.Printf("Scheduler started with %d cron workers", len(workers))
+	log.Printf("Scheduler started with %d scheduled workers", len(workers))
 	return nil
 }
 

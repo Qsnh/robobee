@@ -24,10 +24,10 @@ func (s *WorkerStore) Create(w model.Worker) (model.Worker, error) {
 	w.UpdatedAt = w.CreatedAt
 
 	_, err := s.db.Exec(
-		`INSERT INTO workers (id, name, description, prompt, email, runtime_type, work_dir, trigger_type, cron_expression, recipients, requires_approval, status, created_at, updated_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		`INSERT INTO workers (id, name, description, prompt, email, runtime_type, work_dir, cron_expression, recipients, schedule_enabled, status, created_at, updated_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		w.ID, w.Name, w.Description, w.Prompt, w.Email, w.RuntimeType, w.WorkDir,
-		w.TriggerType, w.CronExpression, string(w.Recipients), w.RequiresApproval,
+		w.CronExpression, string(w.Recipients), w.ScheduleEnabled,
 		w.Status, w.CreatedAt, w.UpdatedAt,
 	)
 	if err != nil {
@@ -36,15 +36,15 @@ func (s *WorkerStore) Create(w model.Worker) (model.Worker, error) {
 	return w, nil
 }
 
-const workerColumns = `id, name, description, prompt, email, runtime_type, work_dir, trigger_type, cron_expression, recipients, requires_approval, status, created_at, updated_at`
+const workerColumns = `id, name, description, prompt, email, runtime_type, work_dir, cron_expression, recipients, schedule_enabled, status, created_at, updated_at`
 
 func scanWorker(scanner interface{ Scan(...any) error }) (model.Worker, error) {
 	var w model.Worker
 	var recipients string
 	err := scanner.Scan(
 		&w.ID, &w.Name, &w.Description, &w.Prompt, &w.Email, &w.RuntimeType,
-		&w.WorkDir, &w.TriggerType, &w.CronExpression, &recipients,
-		&w.RequiresApproval, &w.Status, &w.CreatedAt, &w.UpdatedAt,
+		&w.WorkDir, &w.CronExpression, &recipients,
+		&w.ScheduleEnabled, &w.Status, &w.CreatedAt, &w.UpdatedAt,
 	)
 	if err != nil {
 		return model.Worker{}, err
@@ -89,12 +89,12 @@ func (s *WorkerStore) List() ([]model.Worker, error) {
 	return workers, rows.Err()
 }
 
-func (s *WorkerStore) ListCronWorkers() ([]model.Worker, error) {
+func (s *WorkerStore) ListScheduledWorkers() ([]model.Worker, error) {
 	rows, err := s.db.Query(
-		`SELECT `+workerColumns+` FROM workers WHERE trigger_type = 'cron' AND cron_expression != ''`,
+		`SELECT `+workerColumns+` FROM workers WHERE schedule_enabled = 1 AND cron_expression != ''`,
 	)
 	if err != nil {
-		return nil, fmt.Errorf("list cron workers: %w", err)
+		return nil, fmt.Errorf("list scheduled workers: %w", err)
 	}
 	defer rows.Close()
 
@@ -113,10 +113,10 @@ func (s *WorkerStore) Update(w model.Worker) (model.Worker, error) {
 	w.UpdatedAt = time.Now().UTC()
 	_, err := s.db.Exec(
 		`UPDATE workers SET name=?, description=?, prompt=?, email=?, runtime_type=?, work_dir=?,
-		 trigger_type=?, cron_expression=?, recipients=?, requires_approval=?, status=?, updated_at=?
+		 cron_expression=?, recipients=?, schedule_enabled=?, status=?, updated_at=?
 		 WHERE id=?`,
 		w.Name, w.Description, w.Prompt, w.Email, w.RuntimeType, w.WorkDir,
-		w.TriggerType, w.CronExpression, string(w.Recipients), w.RequiresApproval,
+		w.CronExpression, string(w.Recipients), w.ScheduleEnabled,
 		w.Status, w.UpdatedAt, w.ID,
 	)
 	if err != nil {

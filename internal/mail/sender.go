@@ -65,7 +65,3 @@ func (s *Sender) SendReport(execution model.WorkerExecution, workerEmail string,
 	return err
 }
 
-func (s *Sender) SendApprovalRequest(execution model.WorkerExecution, workerEmail string, recipients []string, subject, body string) error {
-	approvalBody := body + "\n\n---\nReply with 'approve/通过' to approve, or 'reject/驳回' with feedback to reject.\n"
-	return s.SendReport(execution, workerEmail, recipients, "[Approval Required] "+subject, approvalBody)
-}

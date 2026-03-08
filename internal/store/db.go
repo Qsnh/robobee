@@ -45,10 +45,9 @@ func migrate(db *sql.DB) error {
 		email TEXT NOT NULL UNIQUE,
 		runtime_type TEXT NOT NULL DEFAULT 'claude_code',
 		work_dir TEXT NOT NULL,
-		trigger_type TEXT NOT NULL DEFAULT 'message',
 		cron_expression TEXT NOT NULL DEFAULT '',
 		recipients TEXT NOT NULL DEFAULT '[]',
-		requires_approval INTEGER NOT NULL DEFAULT 0,
+		schedule_enabled INTEGER NOT NULL DEFAULT 0,
 		status TEXT NOT NULL DEFAULT 'idle',
 		created_at DATETIME NOT NULL DEFAULT (datetime('now')),
 		updated_at DATETIME NOT NULL DEFAULT (datetime('now'))

@@ -1,4 +1,4 @@
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
+import { useQuery, useMutation } from "@tanstack/react-query"
 import { api } from "@/lib/api"
 
 export function useExecutions() {
@@ -19,27 +19,6 @@ export function useExecutionEmails(id: string) {
   return useQuery({
     queryKey: ["executions", id, "emails"],
     queryFn: () => api.executions.emails(id),
-  })
-}
-
-export function useApproveExecution() {
-  const queryClient = useQueryClient()
-  return useMutation({
-    mutationFn: (id: string) => api.executions.approve(id),
-    onSuccess: (_data, id) => {
-      queryClient.invalidateQueries({ queryKey: ["executions", id] })
-    },
-  })
-}
-
-export function useRejectExecution() {
-  const queryClient = useQueryClient()
-  return useMutation({
-    mutationFn: ({ id, feedback }: { id: string; feedback: string }) =>
-      api.executions.reject(id, feedback),
-    onSuccess: (_data, { id }) => {
-      queryClient.invalidateQueries({ queryKey: ["executions", id] })
-    },
   })
 }
 

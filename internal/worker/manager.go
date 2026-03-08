@@ -48,10 +48,9 @@ func NewManager(
 func (m *Manager) CreateWorker(
 	name, description, prompt string,
 	runtimeType model.RuntimeType,
-	triggerType model.TriggerType,
 	cronExpression string,
 	recipients []string,
-	requiresApproval bool,
+	scheduleEnabled bool,
 ) (model.Worker, error) {
 	email := fmt.Sprintf("%s@%s", name, m.cfg.SMTP.Domain)
 	workDir := filepath.Join(m.cfg.Workers.BaseDir, name)
@@ -70,16 +69,15 @@ func (m *Manager) CreateWorker(
 	recipientsJSON, _ := json.Marshal(recipients)
 
 	return m.workerStore.Create(model.Worker{
-		Name:             name,
-		Description:      description,
-		Prompt:           prompt,
-		Email:            email,
-		RuntimeType:      runtimeType,
-		WorkDir:          workDir,
-		TriggerType:      triggerType,
-		CronExpression:   cronExpression,
-		Recipients:       recipientsJSON,
-		RequiresApproval: requiresApproval,
+		Name:            name,
+		Description:     description,
+		Prompt:          prompt,
+		Email:           email,
+		RuntimeType:     runtimeType,
+		WorkDir:         workDir,
+		CronExpression:  cronExpression,
+		Recipients:      recipientsJSON,
+		ScheduleEnabled: scheduleEnabled,
 	})
 }
 
@@ -121,10 +119,14 @@ func (m *Manager) ExecuteWorker(ctx context.Context, workerID, triggerInput stri
 		_ = cancel
 	}
 
-	// Build the prompt: base prompt + trigger input for message-triggered workers
+	// Build the prompt: base prompt + trigger input
 	prompt := worker.Prompt
 	if triggerInput != "" && triggerInput != "scheduled" {
-		prompt = fmt.Sprintf("%s\n\n---\nMessage:\n%s", worker.Prompt, triggerInput)
+		if worker.Prompt != "" {
+			prompt = fmt.Sprintf("%s\n\n---\nMessage:\n%s", worker.Prompt, triggerInput)
+		} else {
+			prompt = triggerInput
+		}
 	}
 
 	// Start execution in background
@@ -173,11 +175,7 @@ func (m *Manager) monitorExecution(exec model.WorkerExecution, worker model.Work
 		case OutputStdout:
 			result += out.Content + "\n"
 		case OutputDone:
-			if worker.RequiresApproval {
-				m.executionStore.UpdateResult(exec.ID, result, model.ExecStatusAwaitingApproval)
-			} else {
-				m.executionStore.UpdateResult(exec.ID, result, model.ExecStatusCompleted)
-			}
+			m.executionStore.UpdateResult(exec.ID, result, model.ExecStatusCompleted)
 			m.workerStore.UpdateStatus(worker.ID, model.WorkerStatusIdle)
 		case OutputError:
 			m.executionStore.UpdateResult(exec.ID, result+"\nERROR: "+out.Content, model.ExecStatusFailed)

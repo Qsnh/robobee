@@ -30,10 +30,9 @@ export function Workers() {
   const [description, setDescription] = useState("")
   const [prompt, setPrompt] = useState("")
   const [runtimeType, setRuntimeType] = useState("claude_code")
-  const [triggerType, setTriggerType] = useState("message")
+  const [scheduleEnabled, setScheduleEnabled] = useState(false)
   const [cronExpression, setCronExpression] = useState("")
   const [recipients, setRecipients] = useState("")
-  const [requiresApproval, setRequiresApproval] = useState(false)
 
   const error = fetchError?.message || createWorker.error?.message || deleteWorker.error?.message || ""
 
@@ -42,20 +41,19 @@ export function Workers() {
     await createWorker.mutateAsync({
       name,
       description,
-      prompt,
+      prompt: prompt || undefined,
       runtime_type: runtimeType,
-      trigger_type: triggerType,
-      cron_expression: triggerType === "cron" ? cronExpression : undefined,
+      schedule_enabled: scheduleEnabled || undefined,
+      cron_expression: scheduleEnabled ? cronExpression : undefined,
       recipients: recipientList.length > 0 ? recipientList : undefined,
-      requires_approval: requiresApproval || undefined,
     })
     setOpen(false)
     setName("")
     setDescription("")
     setPrompt("")
+    setScheduleEnabled(false)
     setCronExpression("")
     setRecipients("")
-    setRequiresApproval(false)
   }
 
   const handleDelete = async (id: string) => {
@@ -95,16 +93,6 @@ export function Workers() {
                 />
               </div>
               <div>
-                <Label htmlFor="prompt">Prompt</Label>
-                <Textarea
-                  id="prompt"
-                  value={prompt}
-                  onChange={(e) => setPrompt(e.target.value)}
-                  placeholder="The instruction this worker will execute..."
-                  rows={4}
-                />
-              </div>
-              <div>
                 <Label htmlFor="runtime">Runtime</Label>
                 <select
                   id="runtime"
@@ -116,26 +104,47 @@ export function Workers() {
                   <option value="codex">Codex</option>
                 </select>
               </div>
-              <div>
-                <Label htmlFor="trigger">Trigger Type</Label>
-                <select
-                  id="trigger"
-                  value={triggerType}
-                  onChange={(e) => setTriggerType(e.target.value)}
-                  className="w-full rounded-md border px-3 py-2 text-sm"
-                >
-                  <option value="message">Message</option>
-                  <option value="cron">Cron</option>
-                </select>
+              <div className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  id="schedule"
+                  checked={scheduleEnabled}
+                  onChange={(e) => setScheduleEnabled(e.target.checked)}
+                />
+                <Label htmlFor="schedule">Enable Schedule</Label>
               </div>
-              {triggerType === "cron" && (
+              {scheduleEnabled && (
+                <>
+                  <div>
+                    <Label htmlFor="cron">Cron Expression</Label>
+                    <Input
+                      id="cron"
+                      value={cronExpression}
+                      onChange={(e) => setCronExpression(e.target.value)}
+                      placeholder="0 9 * * *"
+                    />
+                  </div>
+                  <div>
+                    <Label htmlFor="prompt">Prompt</Label>
+                    <Textarea
+                      id="prompt"
+                      value={prompt}
+                      onChange={(e) => setPrompt(e.target.value)}
+                      placeholder="The instruction this worker will execute on schedule..."
+                      rows={4}
+                    />
+                  </div>
+                </>
+              )}
+              {!scheduleEnabled && (
                 <div>
-                  <Label htmlFor="cron">Cron Expression</Label>
-                  <Input
-                    id="cron"
-                    value={cronExpression}
-                    onChange={(e) => setCronExpression(e.target.value)}
-                    placeholder="0 9 * * *"
+                  <Label htmlFor="prompt">Prompt (optional)</Label>
+                  <Textarea
+                    id="prompt"
+                    value={prompt}
+                    onChange={(e) => setPrompt(e.target.value)}
+                    placeholder="Optional base prompt for this worker..."
+                    rows={4}
                   />
                 </div>
               )}
@@ -147,15 +156,6 @@ export function Workers() {
                   onChange={(e) => setRecipients(e.target.value)}
                   placeholder="user@example.com, admin@example.com"
                 />
-              </div>
-              <div className="flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  id="approval"
-                  checked={requiresApproval}
-                  onChange={(e) => setRequiresApproval(e.target.checked)}
-                />
-                <Label htmlFor="approval">Requires Approval</Label>
               </div>
               <Button onClick={handleCreate} className="w-full">
                 Create
@@ -188,7 +188,7 @@ export function Workers() {
               </p>
               <p className="text-xs text-muted-foreground">{w.email}</p>
               <p className="text-xs text-muted-foreground mt-1">
-                {w.trigger_type === "cron" ? `Cron: ${w.cron_expression}` : "Message triggered"}
+                {w.schedule_enabled ? `Schedule: ${w.cron_expression}` : "On-demand"}
               </p>
               <div className="flex gap-2 mt-3">
                 <Link to={`/workers/${w.id}`}>

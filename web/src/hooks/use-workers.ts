@@ -21,12 +21,11 @@ export function useCreateWorker() {
     mutationFn: (data: {
       name: string
       description: string
-      prompt: string
+      prompt?: string
       runtime_type: string
-      trigger_type: string
       cron_expression?: string
       recipients?: string[]
-      requires_approval?: boolean
+      schedule_enabled?: boolean
     }) => api.workers.create(data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["workers"] })

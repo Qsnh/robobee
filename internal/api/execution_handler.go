@@ -5,7 +5,6 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
-	"github.com/robobee/core/internal/model"
 )
 
 var upgrader = websocket.Upgrader{
@@ -38,30 +37,6 @@ func (s *Server) getExecution(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, exec)
-}
-
-func (s *Server) approveExecution(c *gin.Context) {
-	execID := c.Param("id")
-	if err := s.executionStore.UpdateStatus(execID, model.ExecStatusApproved); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-	c.JSON(http.StatusOK, gin.H{"status": "approved"})
-}
-
-func (s *Server) rejectExecution(c *gin.Context) {
-	execID := c.Param("id")
-
-	var req struct {
-		Feedback string `json:"feedback"`
-	}
-	c.ShouldBindJSON(&req)
-
-	if err := s.executionStore.UpdateStatus(execID, model.ExecStatusRejected); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-	c.JSON(http.StatusOK, gin.H{"status": "rejected", "feedback": req.Feedback})
 }
 
 func (s *Server) listEmails(c *gin.Context) {

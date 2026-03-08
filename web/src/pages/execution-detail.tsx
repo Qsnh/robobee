@@ -1,18 +1,13 @@
 import { useEffect, useRef, useState } from "react"
 import { useParams, Link } from "react-router-dom"
-import { useExecution, useExecutionEmails, useApproveExecution, useRejectExecution } from "@/hooks/use-executions"
-import { Button } from "@/components/ui/button"
+import { useExecution, useExecutionEmails } from "@/hooks/use-executions"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Textarea } from "@/components/ui/textarea"
 
 const statusColor: Record<string, string> = {
   pending: "bg-gray-100 text-gray-800",
   running: "bg-blue-100 text-blue-800",
-  awaiting_approval: "bg-yellow-100 text-yellow-800",
-  approved: "bg-green-100 text-green-800",
-  rejected: "bg-red-100 text-red-800",
   completed: "bg-green-100 text-green-800",
   failed: "bg-red-100 text-red-800",
 }
@@ -26,12 +21,8 @@ export function ExecutionDetail() {
   const { id } = useParams<{ id: string }>()
   const { data: execution, error: fetchError } = useExecution(id!)
   const { data: emails = [] } = useExecutionEmails(id!)
-  const approveExecution = useApproveExecution()
-  const rejectExecution = useRejectExecution()
 
   const [logs, setLogs] = useState<LogEntry[]>([])
-  const [feedback, setFeedback] = useState("")
-  const [error, setError] = useState("")
   const logsEndRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -53,22 +44,6 @@ export function ExecutionDetail() {
     logsEndRef.current?.scrollIntoView({ behavior: "smooth" })
   }, [logs])
 
-  const handleApprove = async () => {
-    try {
-      await approveExecution.mutateAsync(id!)
-    } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "Failed to approve")
-    }
-  }
-
-  const handleReject = async () => {
-    try {
-      await rejectExecution.mutateAsync({ id: id!, feedback })
-    } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "Failed to reject")
-    }
-  }
-
   if (!execution) return <p>Loading...</p>
 
   return (
@@ -83,29 +58,8 @@ export function ExecutionDetail() {
         </Badge>
       </div>
 
-      {(error || fetchError) && (
-        <p className="text-red-500 mb-4">{error || fetchError?.message}</p>
-      )}
-
-      {execution.status === "awaiting_approval" && (
-        <Card className="mb-6 border-yellow-300">
-          <CardHeader>
-            <CardTitle>Approval Required</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            <Textarea
-              placeholder="Feedback (optional for rejection)"
-              value={feedback}
-              onChange={(e) => setFeedback(e.target.value)}
-            />
-            <div className="flex gap-2">
-              <Button onClick={handleApprove}>Approve</Button>
-              <Button variant="destructive" onClick={handleReject}>
-                Reject
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
+      {fetchError && (
+        <p className="text-red-500 mb-4">{fetchError.message}</p>
       )}
 
       <Tabs defaultValue="logs">

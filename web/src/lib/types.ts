@@ -1,7 +1,6 @@
 export type RuntimeType = "claude_code" | "codex"
 export type WorkerStatus = "idle" | "working" | "error"
-export type TriggerType = "cron" | "message"
-export type ExecutionStatus = "pending" | "running" | "awaiting_approval" | "approved" | "rejected" | "completed" | "failed"
+export type ExecutionStatus = "pending" | "running" | "completed" | "failed"
 
 export interface Worker {
   id: string
@@ -11,10 +10,9 @@ export interface Worker {
   email: string
   runtime_type: RuntimeType
   work_dir: string
-  trigger_type: TriggerType
   cron_expression: string
   recipients: string[]
-  requires_approval: boolean
+  schedule_enabled: boolean
   status: WorkerStatus
   created_at: string
   updated_at: string

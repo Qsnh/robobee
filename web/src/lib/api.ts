@@ -24,12 +24,11 @@ export const api = {
     create: (data: {
       name: string
       description: string
-      prompt: string
+      prompt?: string
       runtime_type: string
-      trigger_type: string
       cron_expression?: string
       recipients?: string[]
-      requires_approval?: boolean
+      schedule_enabled?: boolean
     }) => fetchAPI<Worker>("/workers", { method: "POST", body: JSON.stringify(data) }),
     update: (id: string, data: Partial<Worker>) =>
       fetchAPI<Worker>(`/workers/${id}`, { method: "PUT", body: JSON.stringify(data) }),
@@ -45,9 +44,6 @@ export const api = {
       return Array.isArray(executions) ? executions : []
     },
     get: (id: string) => fetchAPI<WorkerExecution>(`/executions/${id}`),
-    approve: (id: string) => fetchAPI(`/executions/${id}/approve`, { method: "POST" }),
-    reject: (id: string, feedback: string) =>
-      fetchAPI(`/executions/${id}/reject`, { method: "POST", body: JSON.stringify({ feedback }) }),
     emails: async (id: string) => {
       const emails = await fetchAPI<Email[] | null>(`/executions/${id}/emails`)
       return Array.isArray(emails) ? emails : []

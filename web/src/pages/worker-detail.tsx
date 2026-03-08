@@ -25,9 +25,6 @@ const statusColor: Record<string, string> = {
 const execStatusColor: Record<string, string> = {
   pending: "bg-gray-100 text-gray-800",
   running: "bg-blue-100 text-blue-800",
-  awaiting_approval: "bg-yellow-100 text-yellow-800",
-  approved: "bg-green-100 text-green-800",
-  rejected: "bg-red-100 text-red-800",
   completed: "bg-green-100 text-green-800",
   failed: "bg-red-100 text-red-800",
 }
@@ -65,29 +62,27 @@ export function WorkerDetail() {
         </div>
         <div className="flex gap-2 items-center">
           <Badge className={statusColor[worker.status] || ""}>{worker.status}</Badge>
-          {worker.trigger_type === "message" && (
-            <Dialog open={msgDialogOpen} onOpenChange={setMsgDialogOpen}>
-              <DialogTrigger render={<Button />}>
-                Send Message
-              </DialogTrigger>
-              <DialogContent>
-                <DialogHeader>
-                  <DialogTitle>Send Message to {worker.name}</DialogTitle>
-                </DialogHeader>
-                <div className="space-y-4">
-                  <Textarea
-                    value={message}
-                    onChange={(e) => setMessage(e.target.value)}
-                    placeholder="Enter your message..."
-                    rows={4}
-                  />
-                  <Button onClick={handleSendMessage} className="w-full">
-                    Send
-                  </Button>
-                </div>
-              </DialogContent>
-            </Dialog>
-          )}
+          <Dialog open={msgDialogOpen} onOpenChange={setMsgDialogOpen}>
+            <DialogTrigger render={<Button />}>
+              Send Message
+            </DialogTrigger>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>Send Message to {worker.name}</DialogTitle>
+              </DialogHeader>
+              <div className="space-y-4">
+                <Textarea
+                  value={message}
+                  onChange={(e) => setMessage(e.target.value)}
+                  placeholder="Enter your message..."
+                  rows={4}
+                />
+                <Button onClick={handleSendMessage} className="w-full">
+                  Send
+                </Button>
+              </div>
+            </DialogContent>
+          </Dialog>
         </div>
       </div>
 
@@ -138,18 +133,17 @@ export function WorkerDetail() {
             <CardContent className="space-y-2">
               <p><strong>ID:</strong> <span className="font-mono text-sm">{worker.id}</span></p>
               <p><strong>Runtime:</strong> {worker.runtime_type}</p>
-              <p><strong>Trigger:</strong> {worker.trigger_type}
-                {worker.trigger_type === "cron" && ` (${worker.cron_expression})`}
-              </p>
-              <p><strong>Requires Approval:</strong> {worker.requires_approval ? "Yes" : "No"}</p>
+              <p><strong>Schedule:</strong> {worker.schedule_enabled ? `Enabled (${worker.cron_expression})` : "Disabled"}</p>
               <p><strong>Work Dir:</strong> {worker.work_dir}</p>
               <p><strong>Created:</strong> {new Date(worker.created_at).toLocaleString()}</p>
-              <div>
-                <strong>Prompt:</strong>
-                <pre className="mt-1 whitespace-pre-wrap text-sm bg-muted p-3 rounded-md">
-                  {worker.prompt}
-                </pre>
-              </div>
+              {worker.prompt && (
+                <div>
+                  <strong>Prompt:</strong>
+                  <pre className="mt-1 whitespace-pre-wrap text-sm bg-muted p-3 rounded-md">
+                    {worker.prompt}
+                  </pre>
+                </div>
+              )}
             </CardContent>
           </Card>
         </TabsContent>
