@@ -22,11 +22,7 @@ func (r *CodexRuntime) Execute(ctx context.Context, workDir string, plan string)
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	r.cmd = exec.CommandContext(ctx, r.binary,
-		"--quiet",
-		"--approval-mode", "full-auto",
-		plan,
-	)
+	r.cmd = exec.CommandContext(ctx, r.binary, buildCodexArgs(plan)...)
 	r.cmd.Dir = workDir
 
 	stdout, err := r.cmd.StdoutPipe()
@@ -78,6 +74,15 @@ func (r *CodexRuntime) Execute(ctx context.Context, workDir string, plan string)
 	}()
 
 	return ch, nil
+}
+
+func buildCodexArgs(plan string) []string {
+	return []string{
+		"exec",
+		"--full-auto",
+		"--skip-git-repo-check",
+		plan,
+	}
 }
 
 func (r *CodexRuntime) Stop() error {
