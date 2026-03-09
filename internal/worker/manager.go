@@ -119,6 +119,13 @@ func (m *Manager) ExecuteWorker(ctx context.Context, workerID, triggerInput stri
 		}
 	}
 
+	// Instruct the tool to write its result to a known file
+	resultFile := ".robobee_result.txt"
+	prompt += fmt.Sprintf(
+		"\n\n---\n**Result Output Requirement:** When you finish, write a concise summary of what you did and the outcome to `%s` in the current working directory.",
+		resultFile,
+	)
+
 	// Start execution in background
 	outputCh, err := rt.Execute(execCtx, worker.WorkDir, prompt)
 	if err != nil {
@@ -165,6 +172,12 @@ func (m *Manager) monitorExecution(exec model.WorkerExecution, worker model.Work
 		case OutputStdout:
 			result += out.Content + "\n"
 		case OutputDone:
+			// Try to read structured result from file
+			resultFilePath := filepath.Join(worker.WorkDir, ".robobee_result.txt")
+			if data, err := os.ReadFile(resultFilePath); err == nil && len(data) > 0 {
+				result = string(data)
+				os.Remove(resultFilePath) // clean up
+			}
 			m.executionStore.UpdateResult(exec.ID, result, model.ExecStatusCompleted)
 			m.workerStore.UpdateStatus(worker.ID, model.WorkerStatusIdle)
 		case OutputError:
