@@ -41,7 +41,7 @@ export function Dashboard() {
                   {w.description || "No description"}
                 </p>
                 <p className="text-xs text-muted-foreground">
-                  Runtime: {w.runtime_type} | {w.schedule_enabled ? `Schedule: ${w.cron_expression}` : "On-demand"}
+                  {w.schedule_enabled ? `Schedule: ${w.cron_expression}` : "On-demand"}
                 </p>
               </CardContent>
             </Card>

@@ -60,7 +60,6 @@ func NewManager(
 
 func (m *Manager) CreateWorker(
 	name, description, prompt string,
-	runtimeType model.RuntimeType,
 	cronExpression string,
 	scheduleEnabled bool,
 ) (model.Worker, error) {
@@ -81,7 +80,6 @@ func (m *Manager) CreateWorker(
 		Name:            name,
 		Description:     description,
 		Prompt:          prompt,
-		RuntimeType:     runtimeType,
 		WorkDir:         workDir,
 		CronExpression:  cronExpression,
 		ScheduleEnabled: scheduleEnabled,
@@ -104,19 +102,8 @@ func (m *Manager) ExecuteWorker(ctx context.Context, workerID, triggerInput stri
 		log.Printf("failed to update worker status: %v", err)
 	}
 
-	// Create runtime based on worker type
-	var rt Runtime
-	var timeout time.Duration
-	switch worker.RuntimeType {
-	case model.RuntimeClaudeCode:
-		rt = NewClaudeRuntime(m.cfg.Runtime.ClaudeCode.Binary)
-		timeout = m.cfg.Runtime.ClaudeCode.Timeout
-	case model.RuntimeCodex:
-		rt = NewCodexRuntime(m.cfg.Runtime.Codex.Binary)
-		timeout = m.cfg.Runtime.Codex.Timeout
-	default:
-		return model.WorkerExecution{}, fmt.Errorf("unknown runtime: %s", worker.RuntimeType)
-	}
+	rt := NewClaudeRuntime(m.cfg.Runtime.ClaudeCode.Binary)
+	timeout := m.cfg.Runtime.ClaudeCode.Timeout
 
 	// Build the prompt: base prompt + trigger input
 	prompt := worker.Prompt
@@ -261,10 +248,6 @@ func (m *Manager) ReplyExecution(ctx context.Context, executionID string, messag
 	if err != nil {
 		return model.WorkerExecution{}, fmt.Errorf("get worker: %w", err)
 	}
-	if worker.RuntimeType != model.RuntimeClaudeCode {
-		return model.WorkerExecution{}, fmt.Errorf("runtime %s does not support reply", worker.RuntimeType)
-	}
-
 	newExec, err := m.executionStore.CreateWithSessionID(srcExec.WorkerID, message, srcExec.SessionID)
 	if err != nil {
 		return model.WorkerExecution{}, fmt.Errorf("create reply execution: %w", err)

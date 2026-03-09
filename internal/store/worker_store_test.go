@@ -21,7 +21,6 @@ func TestWorkerStore_Create(t *testing.T) {
 	w := model.Worker{
 		Name:        "TestBot",
 		Description: "A test worker",
-		RuntimeType: model.RuntimeClaudeCode,
 		WorkDir:     "/tmp/testbot",
 	}
 	created, err := s.Create(w)
@@ -39,7 +38,7 @@ func TestWorkerStore_Create(t *testing.T) {
 func TestWorkerStore_GetByID(t *testing.T) {
 	s := setupTestDB(t)
 	w, _ := s.Create(model.Worker{
-		Name: "Bot1", 		RuntimeType: model.RuntimeClaudeCode, WorkDir: "/tmp/bot1",
+		Name: "Bot1", WorkDir: "/tmp/bot1",
 	})
 	got, err := s.GetByID(w.ID)
 	if err != nil {
@@ -52,8 +51,8 @@ func TestWorkerStore_GetByID(t *testing.T) {
 
 func TestWorkerStore_List(t *testing.T) {
 	s := setupTestDB(t)
-	s.Create(model.Worker{Name: "A", RuntimeType: model.RuntimeClaudeCode, WorkDir: "/tmp/a"})
-	s.Create(model.Worker{Name: "B", RuntimeType: model.RuntimeCodex, WorkDir: "/tmp/b"})
+	s.Create(model.Worker{Name: "A", WorkDir: "/tmp/a"})
+	s.Create(model.Worker{Name: "B", WorkDir: "/tmp/b"})
 	list, err := s.List()
 	if err != nil {
 		t.Fatalf("List: %v", err)
@@ -65,7 +64,7 @@ func TestWorkerStore_List(t *testing.T) {
 
 func TestWorkerStore_Update(t *testing.T) {
 	s := setupTestDB(t)
-	w, _ := s.Create(model.Worker{Name: "Old", RuntimeType: model.RuntimeClaudeCode, WorkDir: "/tmp/old"})
+	w, _ := s.Create(model.Worker{Name: "Old", WorkDir: "/tmp/old"})
 	w.Name = "New"
 	updated, err := s.Update(w)
 	if err != nil {
@@ -78,7 +77,7 @@ func TestWorkerStore_Update(t *testing.T) {
 
 func TestWorkerStore_Delete(t *testing.T) {
 	s := setupTestDB(t)
-	w, _ := s.Create(model.Worker{Name: "Del", RuntimeType: model.RuntimeClaudeCode, WorkDir: "/tmp/del"})
+	w, _ := s.Create(model.Worker{Name: "Del", WorkDir: "/tmp/del"})
 	if err := s.Delete(w.ID); err != nil {
 		t.Fatalf("Delete: %v", err)
 	}

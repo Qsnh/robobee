@@ -7,12 +7,8 @@ database:
 
 workers:
   base_dir: ./data/workers
-  default_runtime: claude_code
 
 runtime:
   claude_code:
     binary: claude
-    timeout: 30m
-  codex:
-    binary: codex
     timeout: 30m

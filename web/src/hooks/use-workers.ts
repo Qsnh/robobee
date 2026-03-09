@@ -22,7 +22,6 @@ export function useCreateWorker() {
       name: string
       description: string
       prompt?: string
-      runtime_type: string
       cron_expression?: string
       schedule_enabled?: boolean
     }) => api.workers.create(data),

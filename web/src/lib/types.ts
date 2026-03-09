@@ -1,4 +1,3 @@
-export type RuntimeType = "claude_code" | "codex"
 export type WorkerStatus = "idle" | "working" | "error"
 export type ExecutionStatus = "pending" | "running" | "completed" | "failed"
 
@@ -7,7 +6,6 @@ export interface Worker {
   name: string
   description: string
   prompt: string
-  runtime_type: RuntimeType
   work_dir: string
   cron_expression: string
   schedule_enabled: boolean

@@ -5,16 +5,14 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
-	"github.com/robobee/core/internal/model"
 )
 
 type createWorkerRequest struct {
-	Name            string            `json:"name" binding:"required"`
-	Description     string            `json:"description"`
-	Prompt          string            `json:"prompt"`
-	RuntimeType     model.RuntimeType `json:"runtime_type"`
-	CronExpression  string            `json:"cron_expression"`
-	ScheduleEnabled bool              `json:"schedule_enabled"`
+	Name            string `json:"name" binding:"required"`
+	Description     string `json:"description"`
+	Prompt          string `json:"prompt"`
+	CronExpression  string `json:"cron_expression"`
+	ScheduleEnabled bool   `json:"schedule_enabled"`
 }
 
 func (s *Server) createWorker(c *gin.Context) {
@@ -22,10 +20,6 @@ func (s *Server) createWorker(c *gin.Context) {
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
-	}
-
-	if req.RuntimeType == "" {
-		req.RuntimeType = model.RuntimeClaudeCode
 	}
 
 	if req.ScheduleEnabled {
@@ -41,7 +35,6 @@ func (s *Server) createWorker(c *gin.Context) {
 
 	w, err := s.manager.CreateWorker(
 		req.Name, req.Description, req.Prompt,
-		req.RuntimeType,
 		req.CronExpression, req.ScheduleEnabled,
 	)
 	if err != nil {
@@ -78,12 +71,11 @@ func (s *Server) updateWorker(c *gin.Context) {
 	}
 
 	var req struct {
-		Name            string            `json:"name"`
-		Description     string            `json:"description"`
-		Prompt          string            `json:"prompt"`
-		RuntimeType     model.RuntimeType `json:"runtime_type"`
-		CronExpression  string            `json:"cron_expression"`
-		ScheduleEnabled *bool             `json:"schedule_enabled"`
+		Name            string `json:"name"`
+		Description     string `json:"description"`
+		Prompt          string `json:"prompt"`
+		CronExpression  string `json:"cron_expression"`
+		ScheduleEnabled *bool  `json:"schedule_enabled"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -98,9 +90,6 @@ func (s *Server) updateWorker(c *gin.Context) {
 	}
 	if req.Prompt != "" {
 		w.Prompt = req.Prompt
-	}
-	if req.RuntimeType != "" {
-		w.RuntimeType = req.RuntimeType
 	}
 	if req.CronExpression != "" {
 		w.CronExpression = req.CronExpression

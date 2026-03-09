@@ -29,7 +29,6 @@ export function Workers() {
   const [name, setName] = useState("")
   const [description, setDescription] = useState("")
   const [prompt, setPrompt] = useState("")
-  const [runtimeType, setRuntimeType] = useState("claude_code")
   const [scheduleEnabled, setScheduleEnabled] = useState(false)
   const [cronExpression, setCronExpression] = useState("")
 
@@ -40,7 +39,6 @@ export function Workers() {
       name,
       description,
       prompt: prompt || undefined,
-      runtime_type: runtimeType,
       schedule_enabled: scheduleEnabled || undefined,
       cron_expression: scheduleEnabled ? cronExpression : undefined,
     })
@@ -87,18 +85,6 @@ export function Workers() {
                   onChange={(e) => setDescription(e.target.value)}
                   placeholder="What does this worker do?"
                 />
-              </div>
-              <div>
-                <Label htmlFor="runtime">Runtime</Label>
-                <select
-                  id="runtime"
-                  value={runtimeType}
-                  onChange={(e) => setRuntimeType(e.target.value)}
-                  className="w-full rounded-md border px-3 py-2 text-sm"
-                >
-                  <option value="claude_code">Claude Code</option>
-                  <option value="codex">Codex</option>
-                </select>
               </div>
               <div className="flex items-center gap-2">
                 <input

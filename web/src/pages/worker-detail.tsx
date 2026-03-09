@@ -132,7 +132,6 @@ export function WorkerDetail() {
             </CardHeader>
             <CardContent className="space-y-2">
               <p><strong>ID:</strong> <span className="font-mono text-sm">{worker.id}</span></p>
-              <p><strong>Runtime:</strong> {worker.runtime_type}</p>
               <p><strong>Schedule:</strong> {worker.schedule_enabled ? `Enabled (${worker.cron_expression})` : "Disabled"}</p>
               <p><strong>Work Dir:</strong> {worker.work_dir}</p>
               <p><strong>Created:</strong> {new Date(worker.created_at).toLocaleString()}</p>

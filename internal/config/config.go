@@ -24,13 +24,11 @@ type DatabaseConfig struct {
 }
 
 type WorkersConfig struct {
-	BaseDir        string `yaml:"base_dir"`
-	DefaultRuntime string `yaml:"default_runtime"`
+	BaseDir string `yaml:"base_dir"`
 }
 
 type RuntimeConfig struct {
 	ClaudeCode RuntimeEntry `yaml:"claude_code"`
-	Codex      RuntimeEntry `yaml:"codex"`
 }
 
 type RuntimeEntry struct {

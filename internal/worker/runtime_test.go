@@ -18,22 +18,9 @@ func TestClaudeRuntime_ExecuteWithEcho(t *testing.T) {
 	_ = ctx
 }
 
-func TestCodexRuntime_ImplementsInterface(t *testing.T) {
-	r := &CodexRuntime{binary: "echo"}
-	var _ Runtime = r
-	_ = r
-}
-
 func TestNewClaudeRuntime(t *testing.T) {
 	r := NewClaudeRuntime("/usr/bin/claude")
 	if r.binary != "/usr/bin/claude" {
 		t.Errorf("expected binary /usr/bin/claude, got %s", r.binary)
-	}
-}
-
-func TestNewCodexRuntime(t *testing.T) {
-	r := NewCodexRuntime("/usr/bin/codex")
-	if r.binary != "/usr/bin/codex" {
-		t.Errorf("expected binary /usr/bin/codex, got %s", r.binary)
 	}
 }

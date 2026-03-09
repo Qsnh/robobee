@@ -24,9 +24,9 @@ func (s *WorkerStore) Create(w model.Worker) (model.Worker, error) {
 	w.UpdatedAt = w.CreatedAt
 
 	_, err := s.db.Exec(
-		`INSERT INTO workers (id, name, description, prompt, runtime_type, work_dir, cron_expression, schedule_enabled, status, created_at, updated_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		w.ID, w.Name, w.Description, w.Prompt, w.RuntimeType, w.WorkDir,
+		`INSERT INTO workers (id, name, description, prompt, work_dir, cron_expression, schedule_enabled, status, created_at, updated_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		w.ID, w.Name, w.Description, w.Prompt, w.WorkDir,
 		w.CronExpression, w.ScheduleEnabled,
 		w.Status, w.CreatedAt, w.UpdatedAt,
 	)
@@ -36,12 +36,12 @@ func (s *WorkerStore) Create(w model.Worker) (model.Worker, error) {
 	return w, nil
 }
 
-const workerColumns = `id, name, description, prompt, runtime_type, work_dir, cron_expression, schedule_enabled, status, created_at, updated_at`
+const workerColumns = `id, name, description, prompt, work_dir, cron_expression, schedule_enabled, status, created_at, updated_at`
 
 func scanWorker(scanner interface{ Scan(...any) error }) (model.Worker, error) {
 	var w model.Worker
 	err := scanner.Scan(
-		&w.ID, &w.Name, &w.Description, &w.Prompt, &w.RuntimeType,
+		&w.ID, &w.Name, &w.Description, &w.Prompt,
 		&w.WorkDir, &w.CronExpression,
 		&w.ScheduleEnabled, &w.Status, &w.CreatedAt, &w.UpdatedAt,
 	)
@@ -101,10 +101,10 @@ func (s *WorkerStore) ListScheduledWorkers() ([]model.Worker, error) {
 func (s *WorkerStore) Update(w model.Worker) (model.Worker, error) {
 	w.UpdatedAt = time.Now().UTC()
 	_, err := s.db.Exec(
-		`UPDATE workers SET name=?, description=?, prompt=?, runtime_type=?, work_dir=?,
+		`UPDATE workers SET name=?, description=?, prompt=?, work_dir=?,
 		 cron_expression=?, schedule_enabled=?, status=?, updated_at=?
 		 WHERE id=?`,
-		w.Name, w.Description, w.Prompt, w.RuntimeType, w.WorkDir,
+		w.Name, w.Description, w.Prompt, w.WorkDir,
 		w.CronExpression, w.ScheduleEnabled,
 		w.Status, w.UpdatedAt, w.ID,
 	)

@@ -4,13 +4,6 @@ import (
 	"time"
 )
 
-type RuntimeType string
-
-const (
-	RuntimeClaudeCode RuntimeType = "claude_code"
-	RuntimeCodex      RuntimeType = "codex"
-)
-
 type WorkerStatus string
 
 const (
@@ -24,7 +17,6 @@ type Worker struct {
 	Name            string       `json:"name" db:"name"`
 	Description     string       `json:"description" db:"description"`
 	Prompt          string       `json:"prompt" db:"prompt"`
-	RuntimeType     RuntimeType  `json:"runtime_type" db:"runtime_type"`
 	WorkDir         string       `json:"work_dir" db:"work_dir"`
 	CronExpression  string       `json:"cron_expression,omitempty" db:"cron_expression"`
 	ScheduleEnabled bool         `json:"schedule_enabled" db:"schedule_enabled"`
