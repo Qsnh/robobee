@@ -1,9 +1,194 @@
 import { useEffect, useRef, useState } from "react"
 
-interface LogEntry {
+// ─── Data model ───────────────────────────────────────────────────────────────
+
+type ParsedEntry =
+  | { kind: "text"; text: string }
+  | { kind: "tool"; id: string; name: string; input: unknown; result?: string; isError?: boolean }
+  | { kind: "result"; text: string; subtype: string }
+  | { kind: "raw"; content: string; logType: string }
+
+// ─── Parse helpers ────────────────────────────────────────────────────────────
+
+interface ClaudeStreamEvent {
   type: string
-  content: string
+  subtype?: string
+  message?: {
+    content: Array<{
+      type: string
+      text?: string
+      id?: string
+      name?: string
+      input?: unknown
+      tool_use_id?: string
+      content?: string
+      is_error?: boolean
+    }>
+  }
+  result?: string
 }
+
+function parseStreamLine(line: string): ClaudeStreamEvent | null {
+  try {
+    const obj = JSON.parse(line)
+    if (obj && typeof obj.type === "string") return obj as ClaudeStreamEvent
+    return null
+  } catch {
+    return null
+  }
+}
+
+function getToolMeta(name: string): { icon: string; summary: (input: unknown) => string } {
+  const truncate = (s: string, n = 80) => (s.length > n ? s.slice(0, n) + "…" : s)
+
+  switch (name) {
+    case "Bash":
+      return {
+        icon: "$",
+        summary: (input) => truncate((input as { command?: string })?.command ?? ""),
+      }
+    case "Read":
+    case "Write":
+    case "Edit":
+    case "Glob":
+    case "Grep":
+      return {
+        icon: "📄",
+        summary: (input) => {
+          const i = input as Record<string, string>
+          return truncate(i?.file_path ?? i?.pattern ?? i?.path ?? JSON.stringify(input))
+        },
+      }
+    case "WebSearch":
+    case "WebFetch":
+      return {
+        icon: "🌐",
+        summary: (input) => {
+          const i = input as Record<string, string>
+          return truncate(i?.query ?? i?.url ?? JSON.stringify(input))
+        },
+      }
+    default:
+      return {
+        icon: "🔧",
+        summary: (input) => truncate(JSON.stringify(input)),
+      }
+  }
+}
+
+// ─── Entry accumulator (pure, no React state) ─────────────────────────────────
+
+function appendEntry(
+  content: string,
+  logType: string,
+  entries: ParsedEntry[],
+  toolMap: Map<string, number>,
+) {
+  if (logType === "stdout") {
+    const event = parseStreamLine(content)
+    if (event) {
+      if (event.type === "assistant" && event.message?.content) {
+        for (const block of event.message.content) {
+          if (block.type === "text" && block.text) {
+            entries.push({ kind: "text", text: block.text })
+          } else if (block.type === "tool_use" && block.id && block.name) {
+            toolMap.set(block.id, entries.length)
+            entries.push({ kind: "tool", id: block.id, name: block.name, input: block.input })
+          }
+        }
+        return
+      }
+
+      if (event.type === "user" && event.message?.content) {
+        for (const block of event.message.content) {
+          if (block.type === "tool_result" && block.tool_use_id) {
+            const idx = toolMap.get(block.tool_use_id)
+            if (idx !== undefined) {
+              const existing = entries[idx]
+              if (existing?.kind === "tool") {
+                entries[idx] = {
+                  ...existing,
+                  result: block.content ?? "",
+                  isError: block.is_error,
+                }
+              }
+            }
+          }
+        }
+        return
+      }
+
+      if (event.type === "result") {
+        entries.push({ kind: "result", text: event.result ?? "", subtype: event.subtype ?? "" })
+        return
+      }
+
+      if (event.type === "system") return
+      if (event.type === "rate_limit_event") return
+    }
+  }
+
+  entries.push({ kind: "raw", content, logType })
+}
+
+// ─── Sub-components ───────────────────────────────────────────────────────────
+
+function AssistantText({ text }: { text: string }) {
+  return (
+    <div className="border-l-2 border-blue-500 pl-3 my-2 text-sm text-gray-200 whitespace-pre-wrap">
+      {text}
+    </div>
+  )
+}
+
+function ToolCard({ entry }: { entry: Extract<ParsedEntry, { kind: "tool" }> }) {
+  const [open, setOpen] = useState(false)
+  const meta = getToolMeta(entry.name)
+  const summary = meta.summary(entry.input)
+
+  return (
+    <div className="my-1 border border-gray-700 rounded text-xs">
+      <button
+        className="w-full text-left px-3 py-1.5 flex items-center gap-2 hover:bg-gray-800 transition-colors"
+        onClick={() => setOpen((v) => !v)}
+      >
+        <span className="font-mono text-yellow-400">{meta.icon}</span>
+        <span className="font-semibold text-yellow-300">{entry.name}</span>
+        <span className="text-gray-400 font-mono truncate flex-1">{summary}</span>
+        <span className="text-gray-500 shrink-0">{open ? "▲" : "▼"}</span>
+      </button>
+      {open && (
+        <div className="border-t border-gray-700 px-3 py-2 space-y-2">
+          <div>
+            <div className="text-gray-500 mb-1">Input</div>
+            <pre className="text-gray-300 overflow-x-auto">
+              {JSON.stringify(entry.input, null, 2)}
+            </pre>
+          </div>
+          {entry.result !== undefined && (
+            <div>
+              <div className="text-gray-500 mb-1">Output</div>
+              <pre className={`overflow-x-auto ${entry.isError ? "text-red-400" : "text-green-400"}`}>
+                {entry.result}
+              </pre>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function ResultCard({ entry }: { entry: Extract<ParsedEntry, { kind: "result" }> }) {
+  return (
+    <div className="my-2 bg-green-950 border border-green-700 rounded px-3 py-2 text-sm text-green-300">
+      <span className="font-semibold text-green-400 mr-2">✓ Result</span>
+      {entry.text}
+    </div>
+  )
+}
+
+// ─── Main component ───────────────────────────────────────────────────────────
 
 interface LogViewerProps {
   executionId: string
@@ -12,9 +197,11 @@ interface LogViewerProps {
 }
 
 export function LogViewer({ executionId, status, logs }: LogViewerProps) {
-  const [logEntries, setLogEntries] = useState<LogEntry[]>([])
+  const [entries, setEntries] = useState<ParsedEntry[]>([])
+  const toolMapRef = useRef<Map<string, number>>(new Map())
   const logsEndRef = useRef<HTMLDivElement>(null)
 
+  // Real-time WebSocket stream
   useEffect(() => {
     const wsBase = import.meta.env.VITE_API_URL || "http://localhost:8080/api"
     const wsUrl = wsBase.replace(/^http/, "ws") + `/executions/${executionId}/logs`
@@ -22,7 +209,11 @@ export function LogViewer({ executionId, status, logs }: LogViewerProps) {
 
     ws.onmessage = (event) => {
       const data = JSON.parse(event.data)
-      setLogEntries((prev) => [...prev, data])
+      setEntries((prev) => {
+        const next = [...prev]
+        appendEntry(data.content, data.type, next, toolMapRef.current)
+        return next
+      })
     }
 
     ws.onerror = () => {}
@@ -30,42 +221,50 @@ export function LogViewer({ executionId, status, logs }: LogViewerProps) {
     return () => ws.close()
   }, [executionId])
 
+  // Historical logs (completed executions)
   useEffect(() => {
     if (status !== "running" && logs) {
-      setLogEntries(
-        logs.split("\n").filter(Boolean).map((line) => ({
-          type: "stdout",
-          content: line,
-        }))
-      )
+      const newEntries: ParsedEntry[] = []
+      const newToolMap = new Map<string, number>()
+      logs
+        .split("\n")
+        .filter(Boolean)
+        .forEach((line) => appendEntry(line, "stdout", newEntries, newToolMap))
+      toolMapRef.current = newToolMap
+      setEntries(newEntries)
     }
   }, [status, logs])
 
   useEffect(() => {
     logsEndRef.current?.scrollIntoView({ behavior: "smooth" })
-  }, [logEntries])
+  }, [entries])
 
   return (
-    <div className="bg-black text-green-400 font-mono text-sm p-4 rounded-lg max-h-[500px] overflow-y-auto">
-      {logEntries.length === 0 && (
+    <div className="bg-gray-950 text-green-400 font-mono text-sm p-4 rounded-lg max-h-[600px] overflow-y-auto">
+      {entries.length === 0 && (
         <p className="text-gray-500">
           {status === "running" ? "Waiting for output..." : "No logs recorded."}
         </p>
       )}
-      {logEntries.map((log, i) => (
-        <div
-          key={i}
-          className={
-            log.type === "stderr"
-              ? "text-red-400"
-              : log.type === "error"
-              ? "text-red-500 font-bold"
-              : ""
-          }
-        >
-          {log.content}
-        </div>
-      ))}
+      {entries.map((entry, i) => {
+        if (entry.kind === "text") return <AssistantText key={i} text={entry.text} />
+        if (entry.kind === "tool") return <ToolCard key={entry.id} entry={entry} />
+        if (entry.kind === "result") return <ResultCard key={i} entry={entry} />
+        return (
+          <div
+            key={i}
+            className={
+              entry.logType === "stderr"
+                ? "text-red-400"
+                : entry.logType === "error"
+                  ? "text-red-500 font-bold"
+                  : "text-green-400"
+            }
+          >
+            {entry.content}
+          </div>
+        )
+      })}
       <div ref={logsEndRef} />
     </div>
   )
