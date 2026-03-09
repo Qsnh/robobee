@@ -18,7 +18,7 @@ func NewCodexRuntime(binary string) *CodexRuntime {
 	return &CodexRuntime{binary: binary}
 }
 
-func (r *CodexRuntime) Execute(ctx context.Context, workDir string, plan string) (<-chan Output, error) {
+func (r *CodexRuntime) Execute(ctx context.Context, workDir string, plan string, opts ExecuteOptions) (<-chan Output, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 

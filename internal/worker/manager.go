@@ -101,14 +101,6 @@ func (m *Manager) ExecuteWorker(ctx context.Context, workerID, triggerInput stri
 		return model.WorkerExecution{}, fmt.Errorf("unknown runtime: %s", worker.RuntimeType)
 	}
 
-	// Decouple from caller context; apply configured timeout if set
-	execCtx := ctx
-	if timeout > 0 {
-		var cancel context.CancelFunc
-		execCtx, cancel = context.WithTimeout(ctx, timeout)
-		_ = cancel
-	}
-
 	// Build the prompt: base prompt + trigger input
 	prompt := worker.Prompt
 	if triggerInput != "" && triggerInput != "scheduled" {
@@ -126,33 +118,43 @@ func (m *Manager) ExecuteWorker(ctx context.Context, workerID, triggerInput stri
 		resultFile,
 	)
 
-	// Start execution in background
-	outputCh, err := rt.Execute(execCtx, worker.WorkDir, prompt)
-	if err != nil {
+	if err := m.launchRuntime(exec, worker, rt, timeout, prompt, false); err != nil {
 		m.executionStore.UpdateResult(exec.ID, err.Error(), model.ExecStatusFailed)
 		m.workerStore.UpdateStatus(worker.ID, model.WorkerStatusError)
 		return exec, fmt.Errorf("start runtime: %w", err)
 	}
 
-	// Store active runtime
+	return exec, nil
+}
+
+// launchRuntime applies timeout, starts the runtime, registers it, updates PID, and launches monitoring.
+// The execution context is always derived from context.Background() to decouple from the caller's request.
+func (m *Manager) launchRuntime(exec model.WorkerExecution, worker model.Worker, rt Runtime, timeout time.Duration, prompt string, resume bool) error {
+	var execCtx context.Context
+	var cancel context.CancelFunc
+	if timeout > 0 {
+		execCtx, cancel = context.WithTimeout(context.Background(), timeout)
+	} else {
+		execCtx, cancel = context.WithCancel(context.Background())
+	}
+
+	outputCh, err := rt.Execute(execCtx, worker.WorkDir, prompt, ExecuteOptions{SessionID: exec.SessionID, Resume: resume})
+	if err != nil {
+		cancel()
+		return err
+	}
+
 	m.mu.Lock()
 	m.activeRuntimes[exec.ID] = rt
 	m.mu.Unlock()
 
-	// Update PID
-	if cr, ok := rt.(*ClaudeRuntime); ok {
-		m.executionStore.UpdatePID(exec.ID, cr.PID())
-	} else if cx, ok := rt.(*CodexRuntime); ok {
-		m.executionStore.UpdatePID(exec.ID, cx.PID())
-	}
-
-	// Monitor output in background
-	go m.monitorExecution(exec, worker, outputCh)
-
-	return exec, nil
+	m.executionStore.UpdatePID(exec.ID, rt.PID())
+	go m.monitorExecution(exec, worker, outputCh, cancel)
+	return nil
 }
 
-func (m *Manager) monitorExecution(exec model.WorkerExecution, worker model.Worker, outputCh <-chan Output) {
+func (m *Manager) monitorExecution(exec model.WorkerExecution, worker model.Worker, outputCh <-chan Output, cancel context.CancelFunc) {
+	defer cancel()
 	var result string
 
 	for out := range outputCh {
@@ -206,6 +208,50 @@ func (m *Manager) SubscribeLogs(executionID string) <-chan Output {
 	ch := make(chan Output, 100)
 	m.logSubscribers[executionID] = append(m.logSubscribers[executionID], ch)
 	return ch
+}
+
+func (m *Manager) ReplyExecution(ctx context.Context, executionID string, message string) (model.WorkerExecution, error) {
+	srcExec, err := m.executionStore.GetByID(executionID)
+	if err != nil {
+		return model.WorkerExecution{}, fmt.Errorf("get execution: %w", err)
+	}
+	if srcExec.Status == model.ExecStatusRunning || srcExec.Status == model.ExecStatusPending {
+		return model.WorkerExecution{}, fmt.Errorf("execution is still running")
+	}
+
+	worker, err := m.workerStore.GetByID(srcExec.WorkerID)
+	if err != nil {
+		return model.WorkerExecution{}, fmt.Errorf("get worker: %w", err)
+	}
+	if worker.RuntimeType != model.RuntimeClaudeCode {
+		return model.WorkerExecution{}, fmt.Errorf("runtime %s does not support reply", worker.RuntimeType)
+	}
+
+	newExec, err := m.executionStore.CreateWithSessionID(srcExec.WorkerID, message, srcExec.SessionID)
+	if err != nil {
+		return model.WorkerExecution{}, fmt.Errorf("create reply execution: %w", err)
+	}
+
+	if err := m.workerStore.UpdateStatus(worker.ID, model.WorkerStatusWorking); err != nil {
+		log.Printf("failed to update worker status: %v", err)
+	}
+
+	rt := NewClaudeRuntime(m.cfg.Runtime.ClaudeCode.Binary)
+	timeout := m.cfg.Runtime.ClaudeCode.Timeout
+
+	resultFile := ".robobee_result.txt"
+	prompt := message + fmt.Sprintf(
+		"\n\n---\n**Result Output Requirement:** When you finish, write a concise summary of what you did and the outcome to `%s` in the current working directory.",
+		resultFile,
+	)
+
+	if err := m.launchRuntime(newExec, worker, rt, timeout, prompt, true); err != nil {
+		m.executionStore.UpdateResult(newExec.ID, err.Error(), model.ExecStatusFailed)
+		m.workerStore.UpdateStatus(worker.ID, model.WorkerStatusError)
+		return newExec, fmt.Errorf("start runtime: %w", err)
+	}
+
+	return newExec, nil
 }
 
 func (m *Manager) StopExecution(executionID string) error {

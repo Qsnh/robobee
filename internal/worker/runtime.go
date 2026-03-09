@@ -16,7 +16,13 @@ type Output struct {
 	Content string     `json:"content"`
 }
 
+type ExecuteOptions struct {
+	SessionID string // passed to Claude CLI via --session-id or --resume
+	Resume    bool   // if true, use --resume; if false, use --session-id
+}
+
 type Runtime interface {
-	Execute(ctx context.Context, workDir string, plan string) (<-chan Output, error)
+	Execute(ctx context.Context, workDir string, plan string, opts ExecuteOptions) (<-chan Output, error)
+	PID() int
 	Stop() error
 }

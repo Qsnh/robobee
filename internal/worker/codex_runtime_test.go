@@ -22,7 +22,7 @@ func TestCodexRuntimeExecuteUsesExecArgs(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 
-	outputCh, err := r.Execute(ctx, t.TempDir(), "hello")
+	outputCh, err := r.Execute(ctx, t.TempDir(), "hello", ExecuteOptions{})
 	if err != nil {
 		t.Fatalf("execute failed: %v", err)
 	}

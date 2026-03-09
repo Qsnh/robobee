@@ -17,17 +17,16 @@ func NewExecutionStore(db *sql.DB) *ExecutionStore {
 	return &ExecutionStore{db: db}
 }
 
-func (s *ExecutionStore) Create(workerID, triggerInput string) (model.WorkerExecution, error) {
+func (s *ExecutionStore) create(workerID, triggerInput, sessionID string) (model.WorkerExecution, error) {
 	now := time.Now().UTC()
 	exec := model.WorkerExecution{
 		ID:           uuid.New().String(),
 		WorkerID:     workerID,
-		SessionID:    uuid.New().String(),
+		SessionID:    sessionID,
 		TriggerInput: triggerInput,
 		Status:       model.ExecStatusPending,
 		StartedAt:    &now,
 	}
-
 	_, err := s.db.Exec(
 		`INSERT INTO worker_executions (id, worker_id, session_id, trigger_input, status, result, ai_process_pid, started_at)
 		 VALUES (?, ?, ?, ?, ?, '', 0, ?)`,
@@ -37,6 +36,14 @@ func (s *ExecutionStore) Create(workerID, triggerInput string) (model.WorkerExec
 		return model.WorkerExecution{}, fmt.Errorf("insert execution: %w", err)
 	}
 	return exec, nil
+}
+
+func (s *ExecutionStore) Create(workerID, triggerInput string) (model.WorkerExecution, error) {
+	return s.create(workerID, triggerInput, uuid.New().String())
+}
+
+func (s *ExecutionStore) CreateWithSessionID(workerID, triggerInput, sessionID string) (model.WorkerExecution, error) {
+	return s.create(workerID, triggerInput, sessionID)
 }
 
 const execColumns = `id, worker_id, session_id, trigger_input, status, result, logs, ai_process_pid, started_at, completed_at`

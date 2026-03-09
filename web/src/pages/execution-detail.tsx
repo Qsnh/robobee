@@ -1,9 +1,11 @@
 import { useEffect, useRef, useState } from "react"
-import { useParams, Link } from "react-router-dom"
-import { useExecution } from "@/hooks/use-executions"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { useParams, Link, useNavigate } from "react-router-dom"
+import { useExecution, useReplyExecution } from "@/hooks/use-executions"
+import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { Button } from "@/components/ui/button"
+import { Textarea } from "@/components/ui/textarea"
 
 const statusColor: Record<string, string> = {
   pending: "bg-gray-100 text-gray-800",
@@ -19,9 +21,24 @@ interface LogEntry {
 
 export function ExecutionDetail() {
   const { id } = useParams<{ id: string }>()
+  const navigate = useNavigate()
   const { data: execution, error: fetchError } = useExecution(id!)
   const [logs, setLogs] = useState<LogEntry[]>([])
   const logsEndRef = useRef<HTMLDivElement>(null)
+  const [replyText, setReplyText] = useState("")
+  const [replyError, setReplyError] = useState<string | null>(null)
+  const replyExecution = useReplyExecution()
+
+  const handleReply = async () => {
+    if (!id || !replyText.trim()) return
+    setReplyError(null)
+    try {
+      const newExec = await replyExecution.mutateAsync({ executionId: id, message: replyText })
+      navigate(`/executions/${newExec.id}`)
+    } catch (err) {
+      setReplyError(err instanceof Error ? err.message : "Failed to send reply")
+    }
+  }
 
   useEffect(() => {
     const wsBase = import.meta.env.VITE_API_URL || "http://localhost:8080/api"
@@ -139,6 +156,26 @@ export function ExecutionDetail() {
           </Card>
         </TabsContent>
       </Tabs>
+
+      {execution.status === "completed" && (
+        <div className="mt-6">
+          <h2 className="text-lg font-semibold mb-2">Reply</h2>
+          {replyError && <p className="text-red-500 mb-2">{replyError}</p>}
+          <Textarea
+            value={replyText}
+            onChange={(e) => setReplyText(e.target.value)}
+            placeholder="Continue the conversation..."
+            rows={4}
+            className="mb-2"
+          />
+          <Button
+            onClick={handleReply}
+            disabled={replyExecution.isPending || !replyText.trim()}
+          >
+            {replyExecution.isPending ? "Sending..." : "Send Reply"}
+          </Button>
+        </div>
+      )}
     </div>
   )
 }

@@ -18,16 +18,24 @@ func NewClaudeRuntime(binary string) *ClaudeRuntime {
 	return &ClaudeRuntime{binary: binary}
 }
 
-func (r *ClaudeRuntime) Execute(ctx context.Context, workDir string, plan string) (<-chan Output, error) {
+func (r *ClaudeRuntime) Execute(ctx context.Context, workDir string, plan string, opts ExecuteOptions) (<-chan Output, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	r.cmd = exec.CommandContext(ctx, r.binary,
+	args := []string{
 		"--dangerously-skip-permissions",
 		"--verbose",
-		"-p", plan,
 		"--output-format", "stream-json",
-	)
+	}
+	if opts.SessionID != "" {
+		if opts.Resume {
+			args = append(args, "--resume", opts.SessionID)
+		} else {
+			args = append(args, "--session-id", opts.SessionID)
+		}
+	}
+	args = append(args, "-p", plan)
+	r.cmd = exec.CommandContext(ctx, r.binary, args...)
 	r.cmd.Dir = workDir
 
 	stdout, err := r.cmd.StdoutPipe()

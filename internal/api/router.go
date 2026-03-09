@@ -60,6 +60,7 @@ func (s *Server) setupRoutes() {
 		// Executions
 		api.GET("/executions", s.listExecutions)
 		api.GET("/executions/:id", s.getExecution)
+		api.POST("/executions/:id/reply", s.replyExecution)
 		// WebSocket logs
 		api.GET("/executions/:id/logs", s.streamLogs)
 	}

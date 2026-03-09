@@ -21,3 +21,10 @@ export function useSendMessage() {
       api.message.send(workerId, message),
   })
 }
+
+export function useReplyExecution() {
+  return useMutation({
+    mutationFn: ({ executionId, message }: { executionId: string; message: string }) =>
+      api.executions.reply(executionId, message),
+  })
+}

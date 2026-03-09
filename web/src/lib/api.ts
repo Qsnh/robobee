@@ -43,6 +43,11 @@ export const api = {
       return Array.isArray(executions) ? executions : []
     },
     get: (id: string) => fetchAPI<WorkerExecution>(`/executions/${id}`),
+    reply: (executionId: string, message: string) =>
+      fetchAPI<WorkerExecution>(`/executions/${executionId}/reply`, {
+        method: "POST",
+        body: JSON.stringify({ message }),
+      }),
   },
   message: {
     send: (workerId: string, message: string) =>
