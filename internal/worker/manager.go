@@ -2,10 +2,12 @@ package worker
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -13,6 +15,21 @@ import (
 	"github.com/robobee/core/internal/model"
 	"github.com/robobee/core/internal/store"
 )
+
+type claudeStreamEvent struct {
+	Type    string         `json:"type"`
+	Message *claudeMessage `json:"message,omitempty"`
+	Result  string         `json:"result,omitempty"`
+}
+
+type claudeMessage struct {
+	Content []claudeContent `json:"content"`
+}
+
+type claudeContent struct {
+	Type string `json:"type"`
+	Text string `json:"text,omitempty"`
+}
 
 type Manager struct {
 	cfg            config.Config
@@ -111,13 +128,6 @@ func (m *Manager) ExecuteWorker(ctx context.Context, workerID, triggerInput stri
 		}
 	}
 
-	// Instruct the tool to write its result to a known file
-	resultFile := ".robobee_result.txt"
-	prompt += fmt.Sprintf(
-		"\n\n---\n**Result Output Requirement:** When you finish, write a concise summary of what you did and the outcome to `%s` in the current working directory.",
-		resultFile,
-	)
-
 	if err := m.launchRuntime(exec, worker, rt, timeout, prompt, false); err != nil {
 		m.executionStore.UpdateResult(exec.ID, err.Error(), model.ExecStatusFailed)
 		m.workerStore.UpdateStatus(worker.ID, model.WorkerStatusError)
@@ -155,7 +165,9 @@ func (m *Manager) launchRuntime(exec model.WorkerExecution, worker model.Worker,
 
 func (m *Manager) monitorExecution(exec model.WorkerExecution, worker model.Worker, outputCh <-chan Output, cancel context.CancelFunc) {
 	defer cancel()
-	var result string
+	var rawLogs string
+	var lastAssistantText string
+	var streamResult string
 
 	for out := range outputCh {
 		// Broadcast to WebSocket subscribers
@@ -172,21 +184,47 @@ func (m *Manager) monitorExecution(exec model.WorkerExecution, worker model.Work
 
 		switch out.Type {
 		case OutputStdout:
-			result += out.Content + "\n"
+			rawLogs += out.Content + "\n"
+			// Parse stream-json to extract assistant text and result
+			line := strings.TrimSpace(out.Content)
+			if strings.HasPrefix(line, "{") {
+				var event claudeStreamEvent
+				if err := json.Unmarshal([]byte(line), &event); err == nil {
+					switch event.Type {
+					case "assistant":
+						if event.Message != nil && len(event.Message.Content) > 0 {
+							if event.Message.Content[0].Type == "text" && event.Message.Content[0].Text != "" {
+								lastAssistantText = event.Message.Content[0].Text
+							}
+						}
+					case "result":
+						if event.Result != "" {
+							streamResult = event.Result
+						}
+					}
+				}
+			}
 		case OutputDone:
-			// Save raw stdout logs before overwriting with structured result
-			m.executionStore.UpdateLogs(exec.ID, result)
-			// Try to read structured result from file
+			// Save raw stdout logs
+			m.executionStore.UpdateLogs(exec.ID, rawLogs)
+			// Determine result with priority: file > streamResult > lastAssistantText > rawLogs
+			result := rawLogs
+			if lastAssistantText != "" {
+				result = lastAssistantText
+			}
+			if streamResult != "" {
+				result = streamResult
+			}
 			resultFilePath := filepath.Join(worker.WorkDir, ".robobee_result.txt")
 			if data, err := os.ReadFile(resultFilePath); err == nil && len(data) > 0 {
 				result = string(data)
-				os.Remove(resultFilePath) // clean up
+				os.Remove(resultFilePath)
 			}
 			m.executionStore.UpdateResult(exec.ID, result, model.ExecStatusCompleted)
 			m.workerStore.UpdateStatus(worker.ID, model.WorkerStatusIdle)
 		case OutputError:
-			m.executionStore.UpdateLogs(exec.ID, result)
-			m.executionStore.UpdateResult(exec.ID, result+"\nERROR: "+out.Content, model.ExecStatusFailed)
+			m.executionStore.UpdateLogs(exec.ID, rawLogs)
+			m.executionStore.UpdateResult(exec.ID, rawLogs+"\nERROR: "+out.Content, model.ExecStatusFailed)
 			m.workerStore.UpdateStatus(worker.ID, model.WorkerStatusError)
 		}
 	}
@@ -239,13 +277,7 @@ func (m *Manager) ReplyExecution(ctx context.Context, executionID string, messag
 	rt := NewClaudeRuntime(m.cfg.Runtime.ClaudeCode.Binary)
 	timeout := m.cfg.Runtime.ClaudeCode.Timeout
 
-	resultFile := ".robobee_result.txt"
-	prompt := message + fmt.Sprintf(
-		"\n\n---\n**Result Output Requirement:** When you finish, write a concise summary of what you did and the outcome to `%s` in the current working directory.",
-		resultFile,
-	)
-
-	if err := m.launchRuntime(newExec, worker, rt, timeout, prompt, true); err != nil {
+	if err := m.launchRuntime(newExec, worker, rt, timeout, message, true); err != nil {
 		m.executionStore.UpdateResult(newExec.ID, err.Error(), model.ExecStatusFailed)
 		m.workerStore.UpdateStatus(worker.ID, model.WorkerStatusError)
 		return newExec, fmt.Errorf("start runtime: %w", err)
