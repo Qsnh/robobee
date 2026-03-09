@@ -21,20 +21,6 @@ func InitDB(dbPath string) (*sql.DB, error) {
 }
 
 func migrate(db *sql.DB) error {
-	// Drop old tables to rebuild schema (dev only, no production data)
-	drops := []string{
-		"DROP TABLE IF EXISTS worker_memories",
-		"DROP TABLE IF EXISTS task_executions",
-		"DROP TABLE IF EXISTS tasks",
-		"DROP TABLE IF EXISTS worker_executions",
-		"DROP TABLE IF EXISTS workers",
-	}
-	for _, drop := range drops {
-		if _, err := db.Exec(drop); err != nil {
-			return err
-		}
-	}
-
 	schema := `
 	CREATE TABLE IF NOT EXISTS workers (
 		id TEXT PRIMARY KEY,
