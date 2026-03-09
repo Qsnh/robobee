@@ -39,11 +39,11 @@ func (s *ExecutionStore) Create(workerID, triggerInput string) (model.WorkerExec
 	return exec, nil
 }
 
-const execColumns = `id, worker_id, session_id, trigger_input, status, result, ai_process_pid, started_at, completed_at`
+const execColumns = `id, worker_id, session_id, trigger_input, status, result, logs, ai_process_pid, started_at, completed_at`
 
 func scanExecution(scanner interface{ Scan(...any) error }) (model.WorkerExecution, error) {
 	var e model.WorkerExecution
-	err := scanner.Scan(&e.ID, &e.WorkerID, &e.SessionID, &e.TriggerInput, &e.Status, &e.Result, &e.AIProcessPID, &e.StartedAt, &e.CompletedAt)
+	err := scanner.Scan(&e.ID, &e.WorkerID, &e.SessionID, &e.TriggerInput, &e.Status, &e.Result, &e.Logs, &e.AIProcessPID, &e.StartedAt, &e.CompletedAt)
 	return e, err
 }
 
@@ -103,6 +103,11 @@ func (s *ExecutionStore) ListByWorkerID(workerID string) ([]model.WorkerExecutio
 
 func (s *ExecutionStore) UpdateStatus(id string, status model.ExecutionStatus) error {
 	_, err := s.db.Exec(`UPDATE worker_executions SET status=? WHERE id=?`, status, id)
+	return err
+}
+
+func (s *ExecutionStore) UpdateLogs(id string, logs string) error {
+	_, err := s.db.Exec(`UPDATE worker_executions SET logs=? WHERE id=?`, logs, id)
 	return err
 }
 

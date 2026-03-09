@@ -172,6 +172,8 @@ func (m *Manager) monitorExecution(exec model.WorkerExecution, worker model.Work
 		case OutputStdout:
 			result += out.Content + "\n"
 		case OutputDone:
+			// Save raw stdout logs before overwriting with structured result
+			m.executionStore.UpdateLogs(exec.ID, result)
 			// Try to read structured result from file
 			resultFilePath := filepath.Join(worker.WorkDir, ".robobee_result.txt")
 			if data, err := os.ReadFile(resultFilePath); err == nil && len(data) > 0 {
@@ -181,6 +183,7 @@ func (m *Manager) monitorExecution(exec model.WorkerExecution, worker model.Work
 			m.executionStore.UpdateResult(exec.ID, result, model.ExecStatusCompleted)
 			m.workerStore.UpdateStatus(worker.ID, model.WorkerStatusIdle)
 		case OutputError:
+			m.executionStore.UpdateLogs(exec.ID, result)
 			m.executionStore.UpdateResult(exec.ID, result+"\nERROR: "+out.Content, model.ExecStatusFailed)
 			m.workerStore.UpdateStatus(worker.ID, model.WorkerStatusError)
 		}

@@ -39,6 +39,17 @@ export function ExecutionDetail() {
   }, [id])
 
   useEffect(() => {
+    if (execution && execution.status !== "running" && execution.logs) {
+      setLogs(
+        execution.logs.split("\n").filter(Boolean).map((line) => ({
+          type: "stdout",
+          content: line,
+        }))
+      )
+    }
+  }, [execution?.status, execution?.logs])
+
+  useEffect(() => {
     logsEndRef.current?.scrollIntoView({ behavior: "smooth" })
   }, [logs])
 
@@ -73,7 +84,7 @@ export function ExecutionDetail() {
               <p className="text-gray-500">
                 {execution.status === "running"
                   ? "Waiting for output..."
-                  : "No live logs available."}
+                  : "No logs recorded."}
               </p>
             )}
             {logs.map((log, i) => (

@@ -2,6 +2,7 @@ package store
 
 import (
 	"database/sql"
+	"strings"
 
 	_ "github.com/mattn/go-sqlite3"
 )
@@ -43,6 +44,7 @@ func migrate(db *sql.DB) error {
 		trigger_input TEXT NOT NULL DEFAULT '',
 		status TEXT NOT NULL DEFAULT 'pending',
 		result TEXT NOT NULL DEFAULT '',
+		logs TEXT NOT NULL DEFAULT '',
 		ai_process_pid INTEGER NOT NULL DEFAULT 0,
 		started_at DATETIME,
 		completed_at DATETIME,
@@ -59,6 +61,26 @@ func migrate(db *sql.DB) error {
 		FOREIGN KEY (execution_id) REFERENCES worker_executions(id) ON DELETE CASCADE
 	);
 	`
-	_, err := db.Exec(schema)
-	return err
+	if _, err := db.Exec(schema); err != nil {
+		return err
+	}
+
+	// Additive migrations for existing databases
+	migrations := []string{
+		`ALTER TABLE worker_executions ADD COLUMN logs TEXT NOT NULL DEFAULT ''`,
+	}
+	for _, m := range migrations {
+		if _, err := db.Exec(m); err != nil {
+			// Ignore "duplicate column" errors from SQLite
+			if !isDuplicateColumnError(err) {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func isDuplicateColumnError(err error) bool {
+	msg := err.Error()
+	return strings.Contains(msg, "duplicate column name") || strings.Contains(msg, "already exists")
 }
