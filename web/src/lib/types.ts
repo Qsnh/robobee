@@ -23,6 +23,7 @@ export interface WorkerExecution {
   trigger_input: string
   status: ExecutionStatus
   result: string
+  logs: string | null
   ai_process_pid: number
   started_at: string | null
   completed_at: string | null
