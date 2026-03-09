@@ -6,6 +6,7 @@ import { Workers } from "@/pages/workers"
 import { WorkerDetail } from "@/pages/worker-detail"
 import { Executions } from "@/pages/executions"
 import { ExecutionDetail } from "@/pages/execution-detail"
+import { SessionDetail } from "@/pages/session-detail"
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -27,6 +28,7 @@ export function App() {
             <Route path="/workers/:id" element={<WorkerDetail />} />
             <Route path="/executions" element={<Executions />} />
             <Route path="/executions/:id" element={<ExecutionDetail />} />
+            <Route path="/sessions/:sessionId" element={<SessionDetail />} />
           </Route>
         </Routes>
       </BrowserRouter>

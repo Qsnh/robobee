@@ -1,4 +1,4 @@
-import { useState } from "react"
+import { useState, useMemo } from "react"
 import { useParams, useNavigate, Link } from "react-router-dom"
 import { useWorker } from "@/hooks/use-workers"
 import { useWorkerExecutions } from "@/hooks/use-workers"
@@ -35,6 +35,20 @@ export function WorkerDetail() {
   const { data: worker, error: workerError } = useWorker(id!)
   const { data: executions = [] } = useWorkerExecutions(id!)
   const sendMessage = useSendMessage()
+
+  const sessionGroups = useMemo(() => {
+    const map = new Map<string, typeof executions>()
+    for (const e of executions) {
+      const group = map.get(e.session_id) ?? []
+      group.push(e)
+      map.set(e.session_id, group)
+    }
+    return Array.from(map.values()).sort((a, b) => {
+      const aTime = a[0].started_at ?? ""
+      const bTime = b[0].started_at ?? ""
+      return bTime.localeCompare(aTime)
+    })
+  }, [executions])
 
   const [msgDialogOpen, setMsgDialogOpen] = useState(false)
   const [message, setMessage] = useState("")
@@ -97,31 +111,38 @@ export function WorkerDetail() {
         </TabsList>
 
         <TabsContent value="executions" className="mt-4">
-          {executions.length === 0 && (
+          {sessionGroups.length === 0 && (
             <p className="text-muted-foreground">No executions yet.</p>
           )}
           <div className="space-y-3">
-            {executions.map((e) => (
-              <Card key={e.id}>
-                <CardContent className="flex items-center justify-between py-4">
-                  <div>
-                    <Link
-                      to={`/executions/${e.id}`}
-                      className="font-mono text-sm hover:underline"
-                    >
-                      {e.id.slice(0, 8)}...
-                    </Link>
-                    <p className="text-xs text-muted-foreground mt-1">
-                      {e.started_at ? new Date(e.started_at).toLocaleString() : "-"}
-                      {e.trigger_input && ` | ${e.trigger_input.slice(0, 50)}${e.trigger_input.length > 50 ? "..." : ""}`}
-                    </p>
-                  </div>
-                  <Badge className={execStatusColor[e.status] || ""}>
-                    {e.status}
-                  </Badge>
-                </CardContent>
-              </Card>
-            ))}
+            {sessionGroups.map((group) => {
+              const latest = group[0]
+              const oldest = group[group.length - 1]
+              return (
+                <Card key={latest.session_id}>
+                  <CardContent className="flex items-center justify-between py-4">
+                    <div>
+                      <Link
+                        to={`/sessions/${latest.session_id}`}
+                        className="font-mono text-sm hover:underline"
+                      >
+                        {latest.session_id.slice(0, 8)}...
+                      </Link>
+                      <p className="text-xs text-muted-foreground mt-1">
+                        {oldest.started_at ? new Date(oldest.started_at).toLocaleString() : "-"}
+                        {oldest.trigger_input && ` | ${oldest.trigger_input.slice(0, 50)}${oldest.trigger_input.length > 50 ? "..." : ""}`}
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        {group.length} turn{group.length !== 1 ? "s" : ""}
+                      </p>
+                    </div>
+                    <Badge className={execStatusColor[latest.status] || ""}>
+                      {latest.status}
+                    </Badge>
+                  </CardContent>
+                </Card>
+              )
+            })}
           </div>
         </TabsContent>
 

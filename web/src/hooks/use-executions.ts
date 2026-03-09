@@ -22,6 +22,14 @@ export function useSendMessage() {
   })
 }
 
+export function useSessionExecutions(sessionId: string) {
+  return useQuery({
+    queryKey: ["sessions", sessionId, "executions"],
+    queryFn: () => api.sessions.executions(sessionId),
+    enabled: !!sessionId,
+  })
+}
+
 export function useReplyExecution() {
   return useMutation({
     mutationFn: ({ executionId, message }: { executionId: string; message: string }) =>

@@ -39,6 +39,16 @@ func (s *Server) getExecution(c *gin.Context) {
 	c.JSON(http.StatusOK, exec)
 }
 
+func (s *Server) listSessionExecutions(c *gin.Context) {
+	sessionID := c.Param("sessionId")
+	execs, err := s.executionStore.ListBySessionID(sessionID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, execs)
+}
+
 func (s *Server) replyExecution(c *gin.Context) {
 	var req struct {
 		Message string `json:"message" binding:"required"`

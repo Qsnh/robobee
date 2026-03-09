@@ -1,3 +1,4 @@
+import { useMemo } from "react"
 import { Link } from "react-router-dom"
 import { useExecutions } from "@/hooks/use-executions"
 import { Badge } from "@/components/ui/badge"
@@ -20,60 +21,80 @@ const statusColor: Record<string, string> = {
 export function Executions() {
   const { data: executions = [], error } = useExecutions()
 
+  const sessionGroups = useMemo(() => {
+    const map = new Map<string, typeof executions>()
+    for (const e of executions) {
+      const group = map.get(e.session_id) ?? []
+      group.push(e)
+      map.set(e.session_id, group)
+    }
+    // Each group: executions already ordered DESC from API, so first = latest
+    return Array.from(map.values()).sort((a, b) => {
+      const aTime = a[0].started_at ?? ""
+      const bTime = b[0].started_at ?? ""
+      return bTime.localeCompare(aTime)
+    })
+  }, [executions])
+
   return (
     <div>
       <h1 className="text-2xl font-bold mb-6">Executions</h1>
       {error && <p className="text-red-500 mb-4">{error.message}</p>}
 
-      {executions.length === 0 && !error && (
+      {sessionGroups.length === 0 && !error && (
         <p className="text-muted-foreground">No executions yet.</p>
       )}
 
-      {executions.length > 0 && (
+      {sessionGroups.length > 0 && (
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>ID</TableHead>
+              <TableHead>Session</TableHead>
               <TableHead>Worker</TableHead>
-              <TableHead>Status</TableHead>
+              <TableHead>Turns</TableHead>
+              <TableHead>Latest Status</TableHead>
               <TableHead>Started</TableHead>
-              <TableHead>Completed</TableHead>
+              <TableHead>Last Completed</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
-            {executions.map((e) => (
-              <TableRow key={e.id}>
-                <TableCell>
-                  <Link
-                    to={`/executions/${e.id}`}
-                    className="font-mono text-sm hover:underline"
-                  >
-                    {e.id.slice(0, 8)}...
-                  </Link>
-                </TableCell>
-                <TableCell>
-                  <Link
-                    to={`/workers/${e.worker_id}`}
-                    className="font-mono text-sm hover:underline"
-                  >
-                    {e.worker_id.slice(0, 8)}...
-                  </Link>
-                </TableCell>
-                <TableCell>
-                  <Badge className={statusColor[e.status] || ""}>
-                    {e.status}
-                  </Badge>
-                </TableCell>
-                <TableCell className="text-sm">
-                  {e.started_at ? new Date(e.started_at).toLocaleString() : "-"}
-                </TableCell>
-                <TableCell className="text-sm">
-                  {e.completed_at
-                    ? new Date(e.completed_at).toLocaleString()
-                    : "-"}
-                </TableCell>
-              </TableRow>
-            ))}
+            {sessionGroups.map((group) => {
+              const latest = group[0]
+              const oldest = group[group.length - 1]
+              const lastCompleted = group.find((e) => e.completed_at)
+              return (
+                <TableRow key={latest.session_id}>
+                  <TableCell>
+                    <Link
+                      to={`/sessions/${latest.session_id}`}
+                      className="font-mono text-sm hover:underline"
+                    >
+                      {latest.session_id.slice(0, 8)}...
+                    </Link>
+                  </TableCell>
+                  <TableCell>
+                    <Link
+                      to={`/workers/${latest.worker_id}`}
+                      className="font-mono text-sm hover:underline"
+                    >
+                      {latest.worker_id.slice(0, 8)}...
+                    </Link>
+                  </TableCell>
+                  <TableCell className="text-sm">{group.length} turn{group.length !== 1 ? "s" : ""}</TableCell>
+                  <TableCell>
+                    <Badge className={statusColor[latest.status] || ""}>{latest.status}</Badge>
+                  </TableCell>
+                  <TableCell className="text-sm">
+                    {oldest.started_at ? new Date(oldest.started_at).toLocaleString() : "-"}
+                  </TableCell>
+                  <TableCell className="text-sm">
+                    {lastCompleted?.completed_at
+                      ? new Date(lastCompleted.completed_at).toLocaleString()
+                      : "-"}
+                  </TableCell>
+                </TableRow>
+              )
+            })}
           </TableBody>
         </Table>
       )}

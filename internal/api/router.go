@@ -57,6 +57,9 @@ func (s *Server) setupRoutes() {
 		// Worker executions
 		api.GET("/workers/:id/executions", s.listWorkerExecutions)
 
+		// Sessions
+		api.GET("/sessions/:sessionId/executions", s.listSessionExecutions)
+
 		// Executions
 		api.GET("/executions", s.listExecutions)
 		api.GET("/executions/:id", s.getExecution)

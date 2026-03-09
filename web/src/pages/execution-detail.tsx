@@ -1,6 +1,7 @@
-import { useEffect, useRef, useState } from "react"
+import { useState } from "react"
 import { useParams, Link, useNavigate } from "react-router-dom"
 import { useExecution, useReplyExecution } from "@/hooks/use-executions"
+import { LogViewer } from "@/components/log-viewer"
 import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
@@ -14,17 +15,10 @@ const statusColor: Record<string, string> = {
   failed: "bg-red-100 text-red-800",
 }
 
-interface LogEntry {
-  type: string
-  content: string
-}
-
 export function ExecutionDetail() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
   const { data: execution, error: fetchError } = useExecution(id!)
-  const [logs, setLogs] = useState<LogEntry[]>([])
-  const logsEndRef = useRef<HTMLDivElement>(null)
   const [replyText, setReplyText] = useState("")
   const [replyError, setReplyError] = useState<string | null>(null)
   const replyExecution = useReplyExecution()
@@ -34,41 +28,11 @@ export function ExecutionDetail() {
     setReplyError(null)
     try {
       const newExec = await replyExecution.mutateAsync({ executionId: id, message: replyText })
-      navigate(`/executions/${newExec.id}`)
+      navigate(`/sessions/${newExec.session_id}`)
     } catch (err) {
       setReplyError(err instanceof Error ? err.message : "Failed to send reply")
     }
   }
-
-  useEffect(() => {
-    const wsBase = import.meta.env.VITE_API_URL || "http://localhost:8080/api"
-    const wsUrl = wsBase.replace(/^http/, "ws") + `/executions/${id}/logs`
-    const ws = new WebSocket(wsUrl)
-
-    ws.onmessage = (event) => {
-      const data = JSON.parse(event.data)
-      setLogs((prev) => [...prev, data])
-    }
-
-    ws.onerror = () => {}
-
-    return () => ws.close()
-  }, [id])
-
-  useEffect(() => {
-    if (execution && execution.status !== "running" && execution.logs) {
-      setLogs(
-        execution.logs.split("\n").filter(Boolean).map((line) => ({
-          type: "stdout",
-          content: line,
-        }))
-      )
-    }
-  }, [execution?.status, execution?.logs])
-
-  useEffect(() => {
-    logsEndRef.current?.scrollIntoView({ behavior: "smooth" })
-  }, [logs])
 
   if (!execution) return <p>Loading...</p>
 
@@ -96,30 +60,11 @@ export function ExecutionDetail() {
         </TabsList>
 
         <TabsContent value="logs" className="mt-4">
-          <div className="bg-black text-green-400 font-mono text-sm p-4 rounded-lg max-h-[500px] overflow-y-auto">
-            {logs.length === 0 && (
-              <p className="text-gray-500">
-                {execution.status === "running"
-                  ? "Waiting for output..."
-                  : "No logs recorded."}
-              </p>
-            )}
-            {logs.map((log, i) => (
-              <div
-                key={i}
-                className={
-                  log.type === "stderr"
-                    ? "text-red-400"
-                    : log.type === "error"
-                    ? "text-red-500 font-bold"
-                    : ""
-                }
-              >
-                {log.content}
-              </div>
-            ))}
-            <div ref={logsEndRef} />
-          </div>
+          <LogViewer
+            executionId={execution.id}
+            status={execution.status}
+            logs={execution.logs}
+          />
         </TabsContent>
 
         <TabsContent value="result" className="mt-4">
@@ -140,7 +85,11 @@ export function ExecutionDetail() {
                   {execution.worker_id.slice(0, 8)}...
                 </Link>
               </p>
-              <p><strong>Session ID:</strong> <span className="font-mono text-sm">{execution.session_id}</span></p>
+              <p><strong>Session:</strong>{" "}
+                <Link to={`/sessions/${execution.session_id}`} className="font-mono text-sm hover:underline">
+                  {execution.session_id}
+                </Link>
+              </p>
               {execution.trigger_input && (
                 <div>
                   <strong>Trigger Input:</strong>

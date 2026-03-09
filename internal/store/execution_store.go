@@ -90,6 +90,24 @@ func (s *ExecutionStore) List() ([]model.WorkerExecution, error) {
 	return execs, rows.Err()
 }
 
+func (s *ExecutionStore) ListBySessionID(sessionID string) ([]model.WorkerExecution, error) {
+	rows, err := s.db.Query(`SELECT `+execColumns+` FROM worker_executions WHERE session_id = ? ORDER BY started_at ASC`, sessionID)
+	if err != nil {
+		return nil, fmt.Errorf("list executions by session: %w", err)
+	}
+	defer rows.Close()
+
+	var execs []model.WorkerExecution
+	for rows.Next() {
+		e, err := scanExecution(rows)
+		if err != nil {
+			return nil, fmt.Errorf("scan execution: %w", err)
+		}
+		execs = append(execs, e)
+	}
+	return execs, rows.Err()
+}
+
 func (s *ExecutionStore) ListByWorkerID(workerID string) ([]model.WorkerExecution, error) {
 	rows, err := s.db.Query(`SELECT `+execColumns+` FROM worker_executions WHERE worker_id = ? ORDER BY started_at DESC`, workerID)
 	if err != nil {

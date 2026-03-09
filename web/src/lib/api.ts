@@ -48,6 +48,12 @@ export const api = {
         body: JSON.stringify({ message }),
       }),
   },
+  sessions: {
+    executions: async (sessionId: string) => {
+      const execs = await fetchAPI<WorkerExecution[] | null>(`/sessions/${sessionId}/executions`)
+      return Array.isArray(execs) ? execs : []
+    },
+  },
   message: {
     send: (workerId: string, message: string) =>
       fetchAPI<WorkerExecution>(`/workers/${workerId}/message`, {
