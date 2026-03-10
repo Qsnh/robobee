@@ -1,14 +1,17 @@
 import { Link, useLocation } from "react-router-dom"
+import { useTranslation } from "react-i18next"
 import { cn } from "@/lib/utils"
-
-const links = [
-  { href: "/", label: "Dashboard" },
-  { href: "/workers", label: "Workers" },
-  { href: "/executions", label: "Executions" },
-]
+import { LanguageSwitcher } from "./language-switcher"
 
 export function Nav() {
   const { pathname } = useLocation()
+  const { t } = useTranslation()
+
+  const links = [
+    { href: "/", label: t("nav.dashboard") },
+    { href: "/workers", label: t("nav.workers") },
+    { href: "/executions", label: t("nav.executions") },
+  ]
 
   return (
     <nav className="border-b bg-background">
@@ -16,7 +19,7 @@ export function Nav() {
         <Link to="/" className="mr-8 text-lg font-bold">
           RoboBee
         </Link>
-        <div className="flex gap-4">
+        <div className="flex gap-4 flex-1">
           {links.map((link) => (
             <Link
               key={link.href}
@@ -32,6 +35,7 @@ export function Nav() {
             </Link>
           ))}
         </div>
+        <LanguageSwitcher />
       </div>
     </nav>
   )
