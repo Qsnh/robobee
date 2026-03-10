@@ -27,11 +27,11 @@ func (s *Server) createWorker(c *gin.Context) {
 
 	if req.ScheduleEnabled {
 		if req.ScheduleDescription == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "schedule_description is required when schedule is enabled"})
+			c.JSON(http.StatusBadRequest, gin.H{"error": localize(c, "ScheduleDescriptionRequired")})
 			return
 		}
 		if req.Prompt == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "prompt is required when schedule is enabled"})
+			c.JSON(http.StatusBadRequest, gin.H{"error": localize(c, "PromptRequired")})
 			return
 		}
 	}
@@ -62,7 +62,7 @@ func (s *Server) listWorkers(c *gin.Context) {
 func (s *Server) getWorker(c *gin.Context) {
 	w, err := s.workerStore.GetByID(c.Param("id"))
 	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "worker not found"})
+		c.JSON(http.StatusNotFound, gin.H{"error": localize(c, "WorkerNotFound")})
 		return
 	}
 	c.JSON(http.StatusOK, w)
@@ -71,7 +71,7 @@ func (s *Server) getWorker(c *gin.Context) {
 func (s *Server) updateWorker(c *gin.Context) {
 	w, err := s.workerStore.GetByID(c.Param("id"))
 	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "worker not found"})
+		c.JSON(http.StatusNotFound, gin.H{"error": localize(c, "WorkerNotFound")})
 		return
 	}
 
@@ -99,7 +99,7 @@ func (s *Server) updateWorker(c *gin.Context) {
 	if req.ScheduleDescription != "" {
 		cronExpression, err := s.manager.ResolveCron(c.Request.Context(), req.ScheduleDescription)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to generate cron expression: " + err.Error()})
+			c.JSON(http.StatusInternalServerError, gin.H{"error": localizeWithData(c, "FailedToGenerateCronExpression", map[string]string{"Error": err.Error()})})
 			return
 		}
 		w.ScheduleDescription = req.ScheduleDescription
@@ -146,7 +146,7 @@ func (s *Server) sendMessage(c *gin.Context) {
 
 	_, err := s.workerStore.GetByID(workerID)
 	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "worker not found"})
+		c.JSON(http.StatusNotFound, gin.H{"error": localize(c, "WorkerNotFound")})
 		return
 	}
 
