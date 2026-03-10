@@ -118,9 +118,11 @@ func (h *Handler) waitForResult(executionID string) string {
 	return "⏰ 任务超时，请稍后通过 Web 界面查看结果"
 }
 
+const markdownTitle = "RoboBee"
+
 func (h *Handler) sendMessage(ctx context.Context, sessionWebhook, text string) {
 	replier := chatbot.NewChatbotReplier()
-	if err := replier.SimpleReplyText(ctx, sessionWebhook, []byte(text)); err != nil {
+	if err := replier.SimpleReplyMarkdown(ctx, sessionWebhook, []byte(markdownTitle), []byte(text)); err != nil {
 		log.Printf("dingtalk: send message error: %v", err)
 	}
 }
