@@ -58,6 +58,7 @@
     }
   },
   "workerDetail": {
+    "sessions": "会话",
     "sendMessage": "发送消息",
     "sendMessageTitle": "向 {{name}} 发送消息",
     "messagePlaceholder": "输入消息...",

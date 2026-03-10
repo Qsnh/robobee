@@ -145,13 +145,13 @@ export function WorkerDetail() {
         <p className="text-red-500 mb-4">{error || workerError?.message}</p>
       )}
 
-      <Tabs defaultValue="executions">
+      <Tabs defaultValue="sessions">
         <TabsList>
-          <TabsTrigger value="executions">{t("nav.executions")}</TabsTrigger>
+          <TabsTrigger value="sessions">{t("workerDetail.sessions")}</TabsTrigger>
           <TabsTrigger value="info">{t("executionDetail.info")}</TabsTrigger>
         </TabsList>
 
-        <TabsContent value="executions" className="mt-4">
+        <TabsContent value="sessions" className="mt-4">
           {sessionGroups.length === 0 && (
             <p className="text-muted-foreground">{t("executions.noExecutions")}</p>
           )}

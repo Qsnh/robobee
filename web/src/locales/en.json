@@ -58,6 +58,7 @@
     }
   },
   "workerDetail": {
+    "sessions": "Sessions",
     "sendMessage": "Send Message",
     "sendMessageTitle": "Send Message to {{name}}",
     "messagePlaceholder": "Enter your message...",
