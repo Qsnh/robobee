@@ -15,6 +15,7 @@ type Config struct {
 	AI       AIConfig       `yaml:"ai"`
 	Feishu   FeishuConfig   `yaml:"feishu"`
 	DingTalk DingTalkConfig `yaml:"dingtalk"`
+	Mail     MailConfig     `yaml:"mail"`
 }
 
 type AIConfig struct {
@@ -33,6 +34,16 @@ type DingTalkConfig struct {
 	Enabled      bool   `yaml:"enabled"`
 	ClientID     string `yaml:"client_id"`
 	ClientSecret string `yaml:"client_secret"`
+}
+
+type MailConfig struct {
+	Enabled      bool          `yaml:"enabled"`
+	IMAPHost     string        `yaml:"imap_host"`
+	SMTPHost     string        `yaml:"smtp_host"`
+	Username     string        `yaml:"username"`
+	Password     string        `yaml:"password"`
+	PollInterval time.Duration `yaml:"poll_interval"`
+	Mailbox      string        `yaml:"mailbox"`
 }
 
 type ServerConfig struct {
