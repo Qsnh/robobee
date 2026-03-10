@@ -1,5 +1,6 @@
 import { useState } from "react"
 import { useParams, Link, useNavigate } from "react-router-dom"
+import { useTranslation } from "react-i18next"
 import { useQueryClient } from "@tanstack/react-query"
 import { useSessionExecutions, useReplyExecution } from "@/hooks/use-executions"
 import { LogViewer } from "@/components/log-viewer"
@@ -16,6 +17,7 @@ const statusColor: Record<string, string> = {
 }
 
 export function SessionDetail() {
+  const { t } = useTranslation()
   const { sessionId } = useParams<{ sessionId: string }>()
   const navigate = useNavigate()
   const queryClient = useQueryClient()
@@ -39,7 +41,7 @@ export function SessionDetail() {
       await queryClient.invalidateQueries({ queryKey: ["sessions", newExec.session_id, "executions"] })
       navigate(`/sessions/${newExec.session_id}`)
     } catch (err) {
-      setReplyError(err instanceof Error ? err.message : "Failed to send reply")
+      setReplyError(err instanceof Error ? err.message : t("sessionDetail.failedToSend"))
     }
   }
 
@@ -49,13 +51,13 @@ export function SessionDetail() {
     <div>
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-2xl font-bold">Session</h1>
+          <h1 className="text-2xl font-bold">{t("sessionDetail.session")}</h1>
           <p className="text-sm text-muted-foreground font-mono">{sessionId}</p>
         </div>
         <div className="flex items-center gap-4 text-sm text-muted-foreground">
           {workerId && (
             <Link to={`/workers/${workerId}`} className="hover:underline font-mono">
-              Worker: {workerId.slice(0, 8)}...
+              {t("sessionDetail.worker")}: {workerId.slice(0, 8)}...
             </Link>
           )}
           <span>{executions.length} turn{executions.length !== 1 ? "s" : ""}</span>
@@ -75,7 +77,7 @@ export function SessionDetail() {
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
                     <span className="text-xs text-muted-foreground font-mono">
-                      Turn {index + 1} ·{" "}
+                      {t("sessionDetail.turn", { index: index + 1 })} ·{" "}
                       <Link to={`/executions/${exec.id}`} className="hover:underline">
                         {exec.id.slice(0, 8)}...
                       </Link>
@@ -89,9 +91,11 @@ export function SessionDetail() {
                   </p>
                 )}
                 <div className="text-xs text-muted-foreground">
-                  {exec.started_at && <>Started: {new Date(exec.started_at).toLocaleString()}</>}
+                  {exec.started_at && (
+                    <>{t("executionDetail.started")}: {new Date(exec.started_at).toLocaleString()}</>
+                  )}
                   {exec.completed_at && (
-                    <> · Completed: {new Date(exec.completed_at).toLocaleString()}</>
+                    <> · {t("executionDetail.completed")}: {new Date(exec.completed_at).toLocaleString()}</>
                   )}
                 </div>
               </CardHeader>
@@ -109,12 +113,12 @@ export function SessionDetail() {
 
       {lastExecution?.status === "completed" && (
         <div className="mt-6">
-          <h2 className="text-lg font-semibold mb-2">Reply</h2>
+          <h2 className="text-lg font-semibold mb-2">{t("executionDetail.reply")}</h2>
           {replyError && <p className="text-red-500 mb-2">{replyError}</p>}
           <Textarea
             value={replyText}
             onChange={(e) => setReplyText(e.target.value)}
-            placeholder="Continue the conversation..."
+            placeholder={t("sessionDetail.replyPlaceholder")}
             rows={4}
             className="mb-2"
           />
@@ -122,7 +126,7 @@ export function SessionDetail() {
             onClick={handleReply}
             disabled={replyExecution.isPending || !replyText.trim()}
           >
-            {replyExecution.isPending ? "Sending..." : "Send Reply"}
+            {replyExecution.isPending ? t("common.sending") : t("sessionDetail.sendReply")}
           </Button>
         </div>
       )}
