@@ -130,18 +130,7 @@ export function Workers() {
                   </div>
                 </>
               )}
-              {!scheduleEnabled && (
-                <div>
-                  <Label htmlFor="prompt">Prompt (optional)</Label>
-                  <Textarea
-                    id="prompt"
-                    value={prompt}
-                    onChange={(e) => setPrompt(e.target.value)}
-                    placeholder="Optional base prompt for this worker..."
-                    rows={4}
-                  />
-                </div>
-              )}
+
               <Button onClick={handleCreate} className="w-full">
                 Create
               </Button>
