@@ -1,11 +1,17 @@
 import type { Worker, WorkerExecution } from "./types"
+import i18n from "i18next"
 
 const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:8080/api"
 
 async function fetchAPI<T>(path: string, options?: RequestInit): Promise<T> {
+  const { headers: extraHeaders, ...restOptions } = options ?? {}
   const res = await fetch(`${API_BASE}${path}`, {
-    headers: { "Content-Type": "application/json" },
-    ...options,
+    headers: {
+      "Content-Type": "application/json",
+      "Accept-Language": i18n.language || "en",
+      ...extraHeaders,
+    },
+    ...restOptions,
   })
   if (!res.ok) {
     const err = await res.json().catch(() => ({ error: res.statusText }))
