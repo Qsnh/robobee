@@ -10,6 +10,8 @@ import {
   DialogHeader,
   DialogTitle,
   DialogTrigger,
+  DialogFooter,
+  DialogDescription,
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -26,6 +28,10 @@ export function Workers() {
   const createWorker = useCreateWorker()
   const deleteWorker = useDeleteWorker()
   const [open, setOpen] = useState(false)
+  const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string } | null>(null)
+  const [deleteWorkDir, setDeleteWorkDir] = useState(false)
+
+  const resetDelete = () => { setDeleteTarget(null); setDeleteWorkDir(false) }
   const [name, setName] = useState("")
   const [description, setDescription] = useState("")
   const [prompt, setPrompt] = useState("")
@@ -53,9 +59,10 @@ export function Workers() {
     setWorkDir("")
   }
 
-  const handleDelete = async (id: string) => {
-    if (!confirm("Delete this worker?")) return
-    await deleteWorker.mutateAsync(id)
+  const handleDeleteConfirm = async () => {
+    if (!deleteTarget) return
+    await deleteWorker.mutateAsync({ id: deleteTarget.id, deleteWorkDir })
+    resetDelete()
   }
 
   return (
@@ -172,7 +179,7 @@ export function Workers() {
                 <Button
                   variant="destructive"
                   size="sm"
-                  onClick={() => handleDelete(w.id)}
+                  onClick={() => setDeleteTarget({ id: w.id, name: w.name })}
                 >
                   Delete
                 </Button>
@@ -181,6 +188,32 @@ export function Workers() {
           </Card>
         ))}
       </div>
+
+      <Dialog open={!!deleteTarget} onOpenChange={(o) => { if (!o) resetDelete() }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>删除 Worker</DialogTitle>
+            <DialogDescription>确定要删除 <strong>{deleteTarget?.name}</strong> 吗？此操作无法撤销。</DialogDescription>
+          </DialogHeader>
+          <div className="flex items-center gap-2 py-2">
+            <input
+              type="checkbox"
+              id="delete-work-dir"
+              checked={deleteWorkDir}
+              onChange={(e) => setDeleteWorkDir(e.target.checked)}
+            />
+            <Label htmlFor="delete-work-dir">同时删除工作目录</Label>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={resetDelete}>
+              取消
+            </Button>
+            <Button variant="destructive" onClick={handleDeleteConfirm} disabled={deleteWorker.isPending}>
+              删除
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

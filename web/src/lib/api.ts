@@ -31,7 +31,8 @@ export const api = {
     }) => fetchAPI<Worker>("/workers", { method: "POST", body: JSON.stringify(data) }),
     update: (id: string, data: Partial<Worker>) =>
       fetchAPI<Worker>(`/workers/${id}`, { method: "PUT", body: JSON.stringify(data) }),
-    delete: (id: string) => fetchAPI(`/workers/${id}`, { method: "DELETE" }),
+    delete: (id: string, deleteWorkDir = false) =>
+      fetchAPI(`/workers/${id}${deleteWorkDir ? "?delete_work_dir=true" : ""}`, { method: "DELETE" }),
     executions: async (id: string) => {
       const execs = await fetchAPI<WorkerExecution[] | null>(`/workers/${id}/executions`)
       return Array.isArray(execs) ? execs : []

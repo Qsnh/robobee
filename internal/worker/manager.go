@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/robobee/core/internal/ai"
 	"github.com/robobee/core/internal/config"
 	"github.com/robobee/core/internal/model"
@@ -72,8 +73,9 @@ func (m *Manager) CreateWorker(
 	scheduleEnabled bool,
 	workDir string,
 ) (model.Worker, error) {
+	id := uuid.New().String()
 	if workDir == "" {
-		workDir = filepath.Join(m.cfg.Workers.BaseDir, name)
+		workDir = filepath.Join(m.cfg.Workers.BaseDir, id)
 	}
 
 	if err := os.MkdirAll(workDir, 0755); err != nil {
@@ -99,6 +101,7 @@ func (m *Manager) CreateWorker(
 	}
 
 	return m.workerStore.Create(model.Worker{
+		ID:                  id,
 		Name:                name,
 		Description:         description,
 		Prompt:              prompt,
@@ -290,6 +293,21 @@ func (m *Manager) ReplyExecution(ctx context.Context, executionID string, messag
 	}
 
 	return newExec, nil
+}
+
+func (m *Manager) DeleteWorker(id string, deleteWorkDir bool) error {
+	if deleteWorkDir {
+		worker, err := m.workerStore.GetByID(id)
+		if err != nil {
+			return fmt.Errorf("get worker: %w", err)
+		}
+		if worker.WorkDir != "" {
+			if err := os.RemoveAll(worker.WorkDir); err != nil {
+				return fmt.Errorf("remove work dir: %w", err)
+			}
+		}
+	}
+	return m.workerStore.Delete(id)
 }
 
 func (m *Manager) StopExecution(executionID string) error {

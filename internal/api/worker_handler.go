@@ -114,7 +114,8 @@ func (s *Server) updateWorker(c *gin.Context) {
 }
 
 func (s *Server) deleteWorker(c *gin.Context) {
-	if err := s.workerStore.Delete(c.Param("id")); err != nil {
+	deleteWorkDir := c.Query("delete_work_dir") == "true"
+	if err := s.manager.DeleteWorker(c.Param("id"), deleteWorkDir); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}

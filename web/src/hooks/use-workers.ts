@@ -35,7 +35,8 @@ export function useCreateWorker() {
 export function useDeleteWorker() {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: (id: string) => api.workers.delete(id),
+    mutationFn: ({ id, deleteWorkDir }: { id: string; deleteWorkDir: boolean }) =>
+      api.workers.delete(id, deleteWorkDir),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["workers"] })
     },

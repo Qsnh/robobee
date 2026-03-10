@@ -18,7 +18,9 @@ func NewWorkerStore(db *sql.DB) *WorkerStore {
 }
 
 func (s *WorkerStore) Create(w model.Worker) (model.Worker, error) {
-	w.ID = uuid.New().String()
+	if w.ID == "" {
+		w.ID = uuid.New().String()
+	}
 	w.Status = model.WorkerStatusIdle
 	w.CreatedAt = time.Now().UTC()
 	w.UpdatedAt = w.CreatedAt
