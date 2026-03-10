@@ -12,6 +12,11 @@ export function useExecution(id: string) {
   return useQuery({
     queryKey: ["executions", id],
     queryFn: () => api.executions.get(id),
+    refetchInterval: (query) => {
+      const status = query.state.data?.status
+      if (status === "completed" || status === "failed") return false
+      return 3000
+    },
   })
 }
 
@@ -30,9 +35,3 @@ export function useSessionExecutions(sessionId: string) {
   })
 }
 
-export function useReplyExecution() {
-  return useMutation({
-    mutationFn: ({ executionId, message }: { executionId: string; message: string }) =>
-      api.executions.reply(executionId, message),
-  })
-}

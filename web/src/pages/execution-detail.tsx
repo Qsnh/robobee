@@ -1,13 +1,10 @@
-import { useState } from "react"
-import { useParams, Link, useNavigate } from "react-router-dom"
+import { useParams, Link } from "react-router-dom"
 import { useTranslation } from "react-i18next"
-import { useExecution, useReplyExecution } from "@/hooks/use-executions"
+import { useExecution } from "@/hooks/use-executions"
 import { LogViewer } from "@/components/log-viewer"
 import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Button } from "@/components/ui/button"
-import { Textarea } from "@/components/ui/textarea"
 
 const statusColor: Record<string, string> = {
   pending: "bg-gray-100 text-gray-800",
@@ -19,22 +16,7 @@ const statusColor: Record<string, string> = {
 export function ExecutionDetail() {
   const { t } = useTranslation()
   const { id } = useParams<{ id: string }>()
-  const navigate = useNavigate()
-  const { data: execution, error: fetchError } = useExecution(id!)
-  const [replyText, setReplyText] = useState("")
-  const [replyError, setReplyError] = useState<string | null>(null)
-  const replyExecution = useReplyExecution()
-
-  const handleReply = async () => {
-    if (!id || !replyText.trim()) return
-    setReplyError(null)
-    try {
-      const newExec = await replyExecution.mutateAsync({ executionId: id, message: replyText })
-      navigate(`/sessions/${newExec.session_id}`)
-    } catch (err) {
-      setReplyError(err instanceof Error ? err.message : t("executionDetail.failedToSend"))
-    }
-  }
+  const { data: execution, error: fetchError, refetch } = useExecution(id!)
 
   if (!execution) return <p>Loading...</p>
 
@@ -66,6 +48,7 @@ export function ExecutionDetail() {
             executionId={execution.id}
             status={execution.status}
             logs={execution.logs}
+            onComplete={refetch}
           />
         </TabsContent>
 
@@ -107,26 +90,6 @@ export function ExecutionDetail() {
           </Card>
         </TabsContent>
       </Tabs>
-
-      {execution.status === "completed" && (
-        <div className="mt-6">
-          <h2 className="text-lg font-semibold mb-2">{t("executionDetail.reply")}</h2>
-          {replyError && <p className="text-red-500 mb-2">{replyError}</p>}
-          <Textarea
-            value={replyText}
-            onChange={(e) => setReplyText(e.target.value)}
-            placeholder={t("executionDetail.replyPlaceholder")}
-            rows={4}
-            className="mb-2"
-          />
-          <Button
-            onClick={handleReply}
-            disabled={replyExecution.isPending || !replyText.trim()}
-          >
-            {replyExecution.isPending ? t("common.sending") : t("executionDetail.sendReply")}
-          </Button>
-        </div>
-      )}
     </div>
   )
 }

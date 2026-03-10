@@ -248,9 +248,10 @@ interface LogViewerProps {
   executionId: string;
   status: string;
   logs: string | null | undefined;
+  onComplete?: () => void;
 }
 
-export function LogViewer({ executionId, status, logs }: LogViewerProps) {
+export function LogViewer({ executionId, status, logs, onComplete }: LogViewerProps) {
   const [entries, setEntries] = useState<ParsedEntry[]>([]);
   const toolMapRef = useRef<Map<string, number>>(new Map());
   const logsEndRef = useRef<HTMLDivElement>(null);
@@ -265,6 +266,9 @@ export function LogViewer({ executionId, status, logs }: LogViewerProps) {
 
     ws.onmessage = (event) => {
       const data = JSON.parse(event.data);
+      if (data.type === "done" || data.type === "error") {
+        onComplete?.();
+      }
       setEntries((prev) => {
         const next = [...prev];
         appendEntry(data.content, data.type, next, toolMapRef.current);
