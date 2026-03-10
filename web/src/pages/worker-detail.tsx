@@ -1,7 +1,6 @@
 import { useState, useMemo } from "react"
 import { useParams, useNavigate, Link } from "react-router-dom"
-import { useWorker } from "@/hooks/use-workers"
-import { useWorkerExecutions } from "@/hooks/use-workers"
+import { useWorker, useWorkerExecutions, useUpdateWorker } from "@/hooks/use-workers"
 import { useSendMessage } from "@/hooks/use-executions"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -15,6 +14,7 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog"
 import { Textarea } from "@/components/ui/textarea"
+import { Pencil } from "lucide-react"
 
 const statusColor: Record<string, string> = {
   idle: "bg-green-100 text-green-800",
@@ -50,6 +50,10 @@ export function WorkerDetail() {
     })
   }, [executions])
 
+  const [isEditingDesc, setIsEditingDesc] = useState(false)
+  const [editDesc, setEditDesc] = useState("")
+  const updateWorker = useUpdateWorker()
+
   const [msgDialogOpen, setMsgDialogOpen] = useState(false)
   const [message, setMessage] = useState("")
   const [error, setError] = useState("")
@@ -72,7 +76,42 @@ export function WorkerDetail() {
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-2xl font-bold">{worker.name}</h1>
-          <p className="text-muted-foreground">{worker.description}</p>
+          {isEditingDesc ? (
+            <div className="mt-1 space-y-2">
+              <Textarea
+                value={editDesc}
+                onChange={(e) => setEditDesc(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Escape") { setIsEditingDesc(false); setEditDesc(worker.description) }
+                }}
+                autoFocus
+                rows={2}
+                className="text-sm"
+              />
+              <div className="flex gap-2">
+                <Button size="sm" onClick={async () => {
+                  await updateWorker.mutateAsync({ id: id!, data: { description: editDesc } })
+                  setIsEditingDesc(false)
+                }}>Save</Button>
+                <Button size="sm" variant="outline" onClick={() => {
+                  setIsEditingDesc(false)
+                  setEditDesc(worker.description)
+                }}>Cancel</Button>
+              </div>
+            </div>
+          ) : (
+            <div className="group flex items-center gap-1 mt-1">
+              <p className="text-muted-foreground text-sm">
+                {worker.description || "No description"}
+              </p>
+              <button
+                className="opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-foreground"
+                onClick={() => { setEditDesc(worker.description); setIsEditingDesc(true) }}
+              >
+                <Pencil className="h-3 w-3" />
+              </button>
+            </div>
+          )}
         </div>
         <div className="flex gap-2 items-center">
           <Badge className={statusColor[worker.status] || ""}>{worker.status}</Badge>

@@ -41,6 +41,17 @@ export function useDeleteWorker() {
   })
 }
 
+export function useUpdateWorker() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, data }: { id: string; data: { description: string } }) =>
+      api.workers.update(id, data),
+    onSuccess: (_, { id }) => {
+      queryClient.invalidateQueries({ queryKey: ["workers", id] })
+    },
+  })
+}
+
 export function useWorkerExecutions(workerId: string) {
   return useQuery({
     queryKey: ["workers", workerId, "executions"],
