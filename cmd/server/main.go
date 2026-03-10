@@ -13,6 +13,7 @@ import (
 	"github.com/robobee/core/internal/config"
 	"github.com/robobee/core/internal/dingtalk"
 	"github.com/robobee/core/internal/feishu"
+	"github.com/robobee/core/internal/mail"
 	"github.com/robobee/core/internal/scheduler"
 	"github.com/robobee/core/internal/store"
 	"github.com/robobee/core/internal/worker"
@@ -72,6 +73,18 @@ func main() {
 		go func() {
 			if err := dingtalk.Start(context.Background(), cfg.DingTalk, workerStore, dingtalkSessionStore, mgr, aiClient); err != nil {
 				log.Printf("dingtalk bot error: %v", err)
+			}
+		}()
+	}
+
+	// Start Mail bot if enabled.
+	// Known limitation: uses context.Background() so the IMAP poller won't receive
+	// a cancellation signal on shutdown — os.Exit(0) terminates it abruptly.
+	if cfg.Mail.Enabled {
+		mailSessionStore := store.NewMailSessionStore(db)
+		go func() {
+			if err := mail.Start(context.Background(), cfg.Mail, workerStore, mailSessionStore, mgr, aiClient); err != nil {
+				log.Printf("mail bot error: %v", err)
 			}
 		}()
 	}
