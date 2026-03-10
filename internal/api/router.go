@@ -7,12 +7,19 @@ import (
 	"github.com/robobee/core/internal/worker"
 )
 
+// WorkerScheduler is the minimal interface api needs from the scheduler.
+type WorkerScheduler interface {
+	AddWorker(workerID, cronExpr string) error
+	RemoveWorker(workerID string)
+}
+
 type Server struct {
 	router         *gin.Engine
 	workerStore    *store.WorkerStore
 	executionStore *store.ExecutionStore
 	memoryStore    *store.MemoryStore
 	manager        *worker.Manager
+	scheduler      WorkerScheduler
 }
 
 func NewServer(
@@ -20,6 +27,7 @@ func NewServer(
 	es *store.ExecutionStore,
 	ms *store.MemoryStore,
 	mgr *worker.Manager,
+	sched WorkerScheduler,
 ) *Server {
 	router := gin.Default()
 	router.Use(cors.New(cors.Config{
@@ -36,6 +44,7 @@ func NewServer(
 		executionStore: es,
 		memoryStore:    ms,
 		manager:        mgr,
+		scheduler:      sched,
 	}
 	s.setupRoutes()
 	return s

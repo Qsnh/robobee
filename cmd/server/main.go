@@ -51,7 +51,7 @@ func main() {
 	}
 
 	// Start HTTP API
-	srv := api.NewServer(workerStore, execStore, memoryStore, mgr)
+	srv := api.NewServer(workerStore, execStore, memoryStore, mgr, sched)
 
 	// Graceful shutdown
 	quit := make(chan os.Signal, 1)
