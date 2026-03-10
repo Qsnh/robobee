@@ -1,5 +1,6 @@
 import { useState } from "react"
 import { useParams, Link, useNavigate } from "react-router-dom"
+import { useQueryClient } from "@tanstack/react-query"
 import { useSessionExecutions, useReplyExecution } from "@/hooks/use-executions"
 import { LogViewer } from "@/components/log-viewer"
 import { Card, CardContent, CardHeader } from "@/components/ui/card"
@@ -17,6 +18,7 @@ const statusColor: Record<string, string> = {
 export function SessionDetail() {
   const { sessionId } = useParams<{ sessionId: string }>()
   const navigate = useNavigate()
+  const queryClient = useQueryClient()
   const { data: executions = [], error } = useSessionExecutions(sessionId!)
   const replyExecution = useReplyExecution()
   const [replyText, setReplyText] = useState("")
@@ -33,6 +35,8 @@ export function SessionDetail() {
         executionId: lastExecution.id,
         message: replyText,
       })
+      setReplyText("")
+      await queryClient.invalidateQueries({ queryKey: ["sessions", newExec.session_id, "executions"] })
       navigate(`/sessions/${newExec.session_id}`)
     } catch (err) {
       setReplyError(err instanceof Error ? err.message : "Failed to send reply")
