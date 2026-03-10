@@ -59,6 +59,14 @@ func migrate(db *sql.DB) error {
 	migrations := []string{
 		`ALTER TABLE worker_executions ADD COLUMN logs TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE workers ADD COLUMN schedule_description TEXT NOT NULL DEFAULT ''`,
+		`CREATE TABLE IF NOT EXISTS feishu_sessions (
+    chat_id TEXT NOT NULL,
+    worker_id TEXT NOT NULL,
+    session_id TEXT NOT NULL,
+    last_execution_id TEXT NOT NULL DEFAULT '',
+    updated_at DATETIME NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY (chat_id)
+)`,
 	}
 	for _, m := range migrations {
 		if _, err := db.Exec(m); err != nil {
