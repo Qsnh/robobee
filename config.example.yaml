@@ -6,7 +6,7 @@ database:
   path: ./data/robobee.db
 
 workers:
-  base_dir: ./data/workers
+  base_dir: ""  # 留空则默认使用 ~/.robobee/worker（Windows: %USERPROFILE%\.robobee\worker）
 
 runtime:
   claude_code:

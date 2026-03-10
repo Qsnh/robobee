@@ -1,7 +1,9 @@
 package config
 
 import (
+	"fmt"
 	"os"
+	"path/filepath"
 	"time"
 
 	"gopkg.in/yaml.v3"
@@ -77,5 +79,19 @@ func Load(path string) (Config, error) {
 	if err := yaml.Unmarshal(data, &cfg); err != nil {
 		return Config{}, err
 	}
+	if err := applyDefaults(&cfg); err != nil {
+		return Config{}, err
+	}
 	return cfg, nil
+}
+
+func applyDefaults(cfg *Config) error {
+	if cfg.Workers.BaseDir == "" {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return fmt.Errorf("get home dir: %w", err)
+		}
+		cfg.Workers.BaseDir = filepath.Join(home, ".robobee", "worker")
+	}
+	return nil
 }
