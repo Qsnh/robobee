@@ -1,0 +1,102 @@
+{
+  "nav": {
+    "dashboard": "Dashboard",
+    "workers": "Workers",
+    "executions": "Executions"
+  },
+  "common": {
+    "save": "Save",
+    "cancel": "Cancel",
+    "delete": "Delete",
+    "view": "View",
+    "create": "Create",
+    "send": "Send",
+    "sending": "Sending...",
+    "noDescription": "No description",
+    "onDemand": "On-demand",
+    "schedule": "Schedule"
+  },
+  "dashboard": {
+    "title": "Dashboard",
+    "noWorkers": "No workers yet.",
+    "createOne": "Create one"
+  },
+  "workers": {
+    "title": "Workers",
+    "createWorker": "Create Worker",
+    "form": {
+      "name": "Name",
+      "namePlaceholder": "e.g. report-bot",
+      "description": "Description",
+      "descriptionPlaceholder": "What does this worker do?",
+      "workDir": "Work Directory (optional)",
+      "workDirPlaceholder": "Leave blank to use default",
+      "enableSchedule": "Enable Schedule",
+      "scheduleDescription": "Schedule Description",
+      "scheduleDescriptionPlaceholder": "e.g. Run at 3 AM every day",
+      "prompt": "Prompt",
+      "promptPlaceholder": "The instruction this worker will execute on schedule..."
+    },
+    "deleteDialog": {
+      "title": "Delete Worker",
+      "confirm": "Are you sure you want to delete <strong>{{name}}</strong>? This action cannot be undone.",
+      "deleteWorkDir": "Also delete work directory"
+    }
+  },
+  "executions": {
+    "title": "Executions",
+    "noExecutions": "No executions yet.",
+    "columns": {
+      "session": "Session",
+      "worker": "Worker",
+      "turns": "Turns",
+      "latestStatus": "Latest Status",
+      "started": "Started",
+      "lastCompleted": "Last Completed"
+    }
+  },
+  "workerDetail": {
+    "sendMessage": "Send Message",
+    "sendMessageTitle": "Send Message to {{name}}",
+    "messagePlaceholder": "Enter your message...",
+    "failedToSend": "Failed to send message",
+    "workerInfo": "Worker Info",
+    "id": "ID",
+    "scheduleDisabled": "Disabled",
+    "scheduleEnabled": "Enabled ({{expr}})",
+    "workDir": "Work Dir",
+    "created": "Created",
+    "prompt": "Prompt"
+  },
+  "executionDetail": {
+    "title": "Execution Detail",
+    "noResult": "No result yet.",
+    "logs": "Logs",
+    "result": "Result",
+    "info": "Info",
+    "worker": "Worker",
+    "session": "Session",
+    "triggerInput": "Trigger Input",
+    "pid": "PID",
+    "started": "Started",
+    "completed": "Completed",
+    "reply": "Reply",
+    "replyPlaceholder": "Continue the conversation...",
+    "sendReply": "Send Reply",
+    "failedToSend": "Failed to send reply"
+  },
+  "sessionDetail": {
+    "session": "Session",
+    "worker": "Worker",
+    "turn": "Turn {{index}}",
+    "replyPlaceholder": "Continue the conversation...",
+    "sendReply": "Send Reply",
+    "failedToSend": "Failed to send reply"
+  },
+  "logViewer": {
+    "waiting": "Waiting for output...",
+    "noLogs": "No logs recorded.",
+    "input": "Input",
+    "output": "Output"
+  }
+}

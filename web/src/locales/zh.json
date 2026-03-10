@@ -1,0 +1,102 @@
+{
+  "nav": {
+    "dashboard": "仪表板",
+    "workers": "工作者",
+    "executions": "执行记录"
+  },
+  "common": {
+    "save": "保存",
+    "cancel": "取消",
+    "delete": "删除",
+    "view": "查看",
+    "create": "创建",
+    "send": "发送",
+    "sending": "发送中...",
+    "noDescription": "无描述",
+    "onDemand": "按需触发",
+    "schedule": "定时"
+  },
+  "dashboard": {
+    "title": "仪表板",
+    "noWorkers": "还没有工作者。",
+    "createOne": "创建一个"
+  },
+  "workers": {
+    "title": "工作者",
+    "createWorker": "创建工作者",
+    "form": {
+      "name": "名称",
+      "namePlaceholder": "例如：report-bot",
+      "description": "描述",
+      "descriptionPlaceholder": "这个工作者做什么？",
+      "workDir": "工作目录（可选）",
+      "workDirPlaceholder": "留空使用默认目录",
+      "enableSchedule": "启用定时",
+      "scheduleDescription": "定时描述",
+      "scheduleDescriptionPlaceholder": "例如：每天凌晨3点执行",
+      "prompt": "提示词",
+      "promptPlaceholder": "这个工作者定时执行的指令..."
+    },
+    "deleteDialog": {
+      "title": "删除工作者",
+      "confirm": "确定要删除 <strong>{{name}}</strong> 吗？此操作无法撤销。",
+      "deleteWorkDir": "同时删除工作目录"
+    }
+  },
+  "executions": {
+    "title": "执行记录",
+    "noExecutions": "还没有执行记录。",
+    "columns": {
+      "session": "会话",
+      "worker": "工作者",
+      "turns": "轮次",
+      "latestStatus": "最新状态",
+      "started": "开始时间",
+      "lastCompleted": "最后完成"
+    }
+  },
+  "workerDetail": {
+    "sendMessage": "发送消息",
+    "sendMessageTitle": "向 {{name}} 发送消息",
+    "messagePlaceholder": "输入消息...",
+    "failedToSend": "发送消息失败",
+    "workerInfo": "工作者信息",
+    "id": "ID",
+    "scheduleDisabled": "已禁用",
+    "scheduleEnabled": "已启用（{{expr}}）",
+    "workDir": "工作目录",
+    "created": "创建时间",
+    "prompt": "提示词"
+  },
+  "executionDetail": {
+    "title": "执行详情",
+    "noResult": "暂无结果。",
+    "logs": "日志",
+    "result": "结果",
+    "info": "信息",
+    "worker": "工作者",
+    "session": "会话",
+    "triggerInput": "触发输入",
+    "pid": "进程ID",
+    "started": "开始时间",
+    "completed": "完成时间",
+    "reply": "回复",
+    "replyPlaceholder": "继续对话...",
+    "sendReply": "发送回复",
+    "failedToSend": "发送回复失败"
+  },
+  "sessionDetail": {
+    "session": "会话",
+    "worker": "工作者",
+    "turn": "第 {{index}} 轮",
+    "replyPlaceholder": "继续对话...",
+    "sendReply": "发送回复",
+    "failedToSend": "发送回复失败"
+  },
+  "logViewer": {
+    "waiting": "等待输出...",
+    "noLogs": "没有日志记录。",
+    "input": "输入",
+    "output": "输出"
+  }
+}
