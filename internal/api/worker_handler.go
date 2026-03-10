@@ -13,6 +13,7 @@ type createWorkerRequest struct {
 	Prompt          string `json:"prompt"`
 	CronExpression  string `json:"cron_expression"`
 	ScheduleEnabled bool   `json:"schedule_enabled"`
+	WorkDir         string `json:"work_dir"`
 }
 
 func (s *Server) createWorker(c *gin.Context) {
@@ -35,7 +36,7 @@ func (s *Server) createWorker(c *gin.Context) {
 
 	w, err := s.manager.CreateWorker(
 		req.Name, req.Description, req.Prompt,
-		req.CronExpression, req.ScheduleEnabled,
+		req.CronExpression, req.ScheduleEnabled, req.WorkDir,
 	)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})

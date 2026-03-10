@@ -31,6 +31,7 @@ export function Workers() {
   const [prompt, setPrompt] = useState("")
   const [scheduleEnabled, setScheduleEnabled] = useState(false)
   const [cronExpression, setCronExpression] = useState("")
+  const [workDir, setWorkDir] = useState("")
 
   const error = fetchError?.message || createWorker.error?.message || deleteWorker.error?.message || ""
 
@@ -41,6 +42,7 @@ export function Workers() {
       prompt: prompt || undefined,
       schedule_enabled: scheduleEnabled || undefined,
       cron_expression: scheduleEnabled ? cronExpression : undefined,
+      work_dir: workDir || undefined,
     })
     setOpen(false)
     setName("")
@@ -48,6 +50,7 @@ export function Workers() {
     setPrompt("")
     setScheduleEnabled(false)
     setCronExpression("")
+    setWorkDir("")
   }
 
   const handleDelete = async (id: string) => {
@@ -84,6 +87,15 @@ export function Workers() {
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}
                   placeholder="What does this worker do?"
+                />
+              </div>
+              <div>
+                <Label htmlFor="workdir">Work Directory (optional)</Label>
+                <Input
+                  id="workdir"
+                  value={workDir}
+                  onChange={(e) => setWorkDir(e.target.value)}
+                  placeholder="Leave blank to use default"
                 />
               </div>
               <div className="flex items-center gap-2">

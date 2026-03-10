@@ -62,18 +62,23 @@ func (m *Manager) CreateWorker(
 	name, description, prompt string,
 	cronExpression string,
 	scheduleEnabled bool,
+	workDir string,
 ) (model.Worker, error) {
-	workDir := filepath.Join(m.cfg.Workers.BaseDir, name)
+	if workDir == "" {
+		workDir = filepath.Join(m.cfg.Workers.BaseDir, name)
+	}
 
 	if err := os.MkdirAll(workDir, 0755); err != nil {
 		return model.Worker{}, fmt.Errorf("create work dir: %w", err)
 	}
 
-	// Initialize CLAUDE.md for the worker
+	// Initialize CLAUDE.md only if it doesn't already exist
 	claudeMD := filepath.Join(workDir, "CLAUDE.md")
-	initialContent := fmt.Sprintf("# %s\n\n**Role:** %s\n\n## Work Memories\n\n", name, description)
-	if err := os.WriteFile(claudeMD, []byte(initialContent), 0644); err != nil {
-		return model.Worker{}, fmt.Errorf("create CLAUDE.md: %w", err)
+	if _, err := os.Stat(claudeMD); os.IsNotExist(err) {
+		initialContent := fmt.Sprintf("# %s\n\n**Role:** %s\n\n## Work Memories\n\n", name, description)
+		if err := os.WriteFile(claudeMD, []byte(initialContent), 0644); err != nil {
+			return model.Worker{}, fmt.Errorf("create CLAUDE.md: %w", err)
+		}
 	}
 
 	return m.workerStore.Create(model.Worker{
