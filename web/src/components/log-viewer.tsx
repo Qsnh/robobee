@@ -293,7 +293,7 @@ export function LogViewer({ executionId, status, logs }: LogViewerProps) {
   }, [entries]);
 
   return (
-    <div className="bg-white text-gray-800 font-mono text-sm p-4 rounded-lg max-h-[600px] overflow-y-auto">
+    <div className="bg-white text-gray-800 font-mono text-sm rounded-lg">
       {entries.length === 0 && (
         <p className="text-gray-400">
           {status === "running" ? "Waiting for output..." : "No logs recorded."}
