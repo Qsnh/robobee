@@ -3,6 +3,7 @@ package mail
 import (
 	"context"
 	"log"
+	"strings"
 	"time"
 
 	"github.com/robobee/core/internal/ai"
@@ -51,8 +52,26 @@ func Start(
 				log.Printf("mail: fetched %d new email(s)", len(emails))
 			}
 			for _, em := range emails {
+				if !subjectMatches(em.Subject, cfg.SubjectKeywords) {
+					log.Printf("mail: skipping email subject=%q (no keyword match)", em.Subject)
+					continue
+				}
 				handler.processEmail(em)
 			}
 		}
 	}
+}
+
+// subjectMatches returns true if keywords is empty or subject contains any keyword (case-insensitive).
+func subjectMatches(subject string, keywords []string) bool {
+	if len(keywords) == 0 {
+		return true
+	}
+	lower := strings.ToLower(subject)
+	for _, kw := range keywords {
+		if strings.Contains(lower, strings.ToLower(kw)) {
+			return true
+		}
+	}
+	return false
 }

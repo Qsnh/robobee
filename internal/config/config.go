@@ -39,13 +39,14 @@ type DingTalkConfig struct {
 }
 
 type MailConfig struct {
-	Enabled      bool          `yaml:"enabled"`
-	IMAPHost     string        `yaml:"imap_host"`
-	SMTPHost     string        `yaml:"smtp_host"`
-	Username     string        `yaml:"username"`
-	Password     string        `yaml:"password"`
-	PollInterval time.Duration `yaml:"poll_interval"`
-	Mailbox      string        `yaml:"mailbox"`
+	Enabled         bool          `yaml:"enabled"`
+	IMAPHost        string        `yaml:"imap_host"`
+	SMTPHost        string        `yaml:"smtp_host"`
+	Username        string        `yaml:"username"`
+	Password        string        `yaml:"password"`
+	PollInterval    time.Duration `yaml:"poll_interval"`
+	Mailbox         string        `yaml:"mailbox"`
+	SubjectKeywords []string      `yaml:"subject_keywords"`
 }
 
 type ServerConfig struct {

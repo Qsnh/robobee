@@ -36,3 +36,4 @@ mail:
   password: ""
   poll_interval: "30s"
   mailbox: "INBOX"
+  subject_keywords: []  # 留空则处理所有邮件；非空则只处理标题含任意关键字的邮件（大小写不敏感）
