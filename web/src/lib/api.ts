@@ -25,7 +25,7 @@ export const api = {
       name: string
       description: string
       prompt?: string
-      cron_expression?: string
+      schedule_description?: string
       schedule_enabled?: boolean
       work_dir?: string
     }) => fetchAPI<Worker>("/workers", { method: "POST", body: JSON.stringify(data) }),

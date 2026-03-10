@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/robobee/core/internal/ai"
 	"github.com/robobee/core/internal/config"
 	"github.com/robobee/core/internal/model"
 	"github.com/robobee/core/internal/store"
@@ -36,8 +37,9 @@ type Manager struct {
 	workerStore    *store.WorkerStore
 	executionStore *store.ExecutionStore
 	memoryStore    *store.MemoryStore
+	aiClient       *ai.Client
 
-	activeRuntimes map[string]Runtime       // execution_id -> runtime
+	activeRuntimes map[string]Runtime      // execution_id -> runtime
 	logSubscribers map[string][]chan Output // execution_id -> subscribers
 	mu             sync.RWMutex
 }
@@ -47,20 +49,26 @@ func NewManager(
 	ws *store.WorkerStore,
 	es *store.ExecutionStore,
 	ms *store.MemoryStore,
+	aiClient *ai.Client,
 ) *Manager {
 	return &Manager{
 		cfg:            cfg,
 		workerStore:    ws,
 		executionStore: es,
 		memoryStore:    ms,
+		aiClient:       aiClient,
 		activeRuntimes: make(map[string]Runtime),
 		logSubscribers: make(map[string][]chan Output),
 	}
 }
 
+func (m *Manager) ResolveCron(ctx context.Context, description string) (string, error) {
+	return m.aiClient.CronFromDescription(ctx, description)
+}
+
 func (m *Manager) CreateWorker(
 	name, description, prompt string,
-	cronExpression string,
+	scheduleDescription string,
 	scheduleEnabled bool,
 	workDir string,
 ) (model.Worker, error) {
@@ -81,13 +89,23 @@ func (m *Manager) CreateWorker(
 		}
 	}
 
+	var cronExpression string
+	if scheduleEnabled && scheduleDescription != "" {
+		var err error
+		cronExpression, err = m.aiClient.CronFromDescription(context.Background(), scheduleDescription)
+		if err != nil {
+			return model.Worker{}, fmt.Errorf("generate cron expression: %w", err)
+		}
+	}
+
 	return m.workerStore.Create(model.Worker{
-		Name:            name,
-		Description:     description,
-		Prompt:          prompt,
-		WorkDir:         workDir,
-		CronExpression:  cronExpression,
-		ScheduleEnabled: scheduleEnabled,
+		Name:                name,
+		Description:         description,
+		Prompt:              prompt,
+		WorkDir:             workDir,
+		CronExpression:      cronExpression,
+		ScheduleDescription: scheduleDescription,
+		ScheduleEnabled:     scheduleEnabled,
 	})
 }
 

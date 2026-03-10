@@ -8,12 +8,12 @@ import (
 )
 
 type createWorkerRequest struct {
-	Name            string `json:"name" binding:"required"`
-	Description     string `json:"description"`
-	Prompt          string `json:"prompt"`
-	CronExpression  string `json:"cron_expression"`
-	ScheduleEnabled bool   `json:"schedule_enabled"`
-	WorkDir         string `json:"work_dir"`
+	Name                string `json:"name" binding:"required"`
+	Description         string `json:"description"`
+	Prompt              string `json:"prompt"`
+	ScheduleDescription string `json:"schedule_description"`
+	ScheduleEnabled     bool   `json:"schedule_enabled"`
+	WorkDir             string `json:"work_dir"`
 }
 
 func (s *Server) createWorker(c *gin.Context) {
@@ -24,8 +24,8 @@ func (s *Server) createWorker(c *gin.Context) {
 	}
 
 	if req.ScheduleEnabled {
-		if req.CronExpression == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "cron_expression is required when schedule is enabled"})
+		if req.ScheduleDescription == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "schedule_description is required when schedule is enabled"})
 			return
 		}
 		if req.Prompt == "" {
@@ -36,7 +36,7 @@ func (s *Server) createWorker(c *gin.Context) {
 
 	w, err := s.manager.CreateWorker(
 		req.Name, req.Description, req.Prompt,
-		req.CronExpression, req.ScheduleEnabled, req.WorkDir,
+		req.ScheduleDescription, req.ScheduleEnabled, req.WorkDir,
 	)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -72,11 +72,11 @@ func (s *Server) updateWorker(c *gin.Context) {
 	}
 
 	var req struct {
-		Name            string `json:"name"`
-		Description     string `json:"description"`
-		Prompt          string `json:"prompt"`
-		CronExpression  string `json:"cron_expression"`
-		ScheduleEnabled *bool  `json:"schedule_enabled"`
+		Name                string `json:"name"`
+		Description         string `json:"description"`
+		Prompt              string `json:"prompt"`
+		ScheduleDescription string `json:"schedule_description"`
+		ScheduleEnabled     *bool  `json:"schedule_enabled"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -92,8 +92,14 @@ func (s *Server) updateWorker(c *gin.Context) {
 	if req.Prompt != "" {
 		w.Prompt = req.Prompt
 	}
-	if req.CronExpression != "" {
-		w.CronExpression = req.CronExpression
+	if req.ScheduleDescription != "" {
+		cronExpression, err := s.manager.ResolveCron(c.Request.Context(), req.ScheduleDescription)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to generate cron expression: " + err.Error()})
+			return
+		}
+		w.ScheduleDescription = req.ScheduleDescription
+		w.CronExpression = cronExpression
 	}
 	if req.ScheduleEnabled != nil {
 		w.ScheduleEnabled = *req.ScheduleEnabled

@@ -7,6 +7,7 @@ import (
 	"os/signal"
 	"syscall"
 
+	"github.com/robobee/core/internal/ai"
 	"github.com/robobee/core/internal/api"
 	"github.com/robobee/core/internal/config"
 	"github.com/robobee/core/internal/scheduler"
@@ -37,8 +38,11 @@ func main() {
 	execStore := store.NewExecutionStore(db)
 	memoryStore := store.NewMemoryStore(db)
 
+	// Initialize AI client
+	aiClient := ai.NewClient(cfg.AI)
+
 	// Create worker manager
-	mgr := worker.NewManager(cfg, workerStore, execStore, memoryStore)
+	mgr := worker.NewManager(cfg, workerStore, execStore, memoryStore, aiClient)
 
 	// Start cron scheduler
 	sched := scheduler.New(workerStore, mgr)

@@ -30,7 +30,7 @@ export function Workers() {
   const [description, setDescription] = useState("")
   const [prompt, setPrompt] = useState("")
   const [scheduleEnabled, setScheduleEnabled] = useState(false)
-  const [cronExpression, setCronExpression] = useState("")
+  const [scheduleDescription, setScheduleDescription] = useState("")
   const [workDir, setWorkDir] = useState("")
 
   const error = fetchError?.message || createWorker.error?.message || deleteWorker.error?.message || ""
@@ -41,7 +41,7 @@ export function Workers() {
       description,
       prompt: prompt || undefined,
       schedule_enabled: scheduleEnabled || undefined,
-      cron_expression: scheduleEnabled ? cronExpression : undefined,
+      schedule_description: scheduleEnabled ? scheduleDescription : undefined,
       work_dir: workDir || undefined,
     })
     setOpen(false)
@@ -49,7 +49,7 @@ export function Workers() {
     setDescription("")
     setPrompt("")
     setScheduleEnabled(false)
-    setCronExpression("")
+    setScheduleDescription("")
     setWorkDir("")
   }
 
@@ -110,12 +110,12 @@ export function Workers() {
               {scheduleEnabled && (
                 <>
                   <div>
-                    <Label htmlFor="cron">Cron Expression</Label>
+                    <Label htmlFor="schedule-desc">定时描述</Label>
                     <Input
-                      id="cron"
-                      value={cronExpression}
-                      onChange={(e) => setCronExpression(e.target.value)}
-                      placeholder="0 9 * * *"
+                      id="schedule-desc"
+                      value={scheduleDescription}
+                      onChange={(e) => setScheduleDescription(e.target.value)}
+                      placeholder="例如：每天凌晨3点执行"
                     />
                   </div>
                   <div>
@@ -161,7 +161,7 @@ export function Workers() {
                 {w.description || "No description"}
               </p>
               <p className="text-xs text-muted-foreground">
-                {w.schedule_enabled ? `Schedule: ${w.cron_expression}` : "On-demand"}
+                {w.schedule_enabled ? `Schedule: ${w.schedule_description || w.cron_expression}` : "On-demand"}
               </p>
               <div className="flex gap-2 mt-3">
                 <Link to={`/workers/${w.id}`}>

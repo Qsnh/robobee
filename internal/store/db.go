@@ -67,6 +67,7 @@ func migrate(db *sql.DB) error {
 	// Additive migrations for existing databases
 	migrations := []string{
 		`ALTER TABLE worker_executions ADD COLUMN logs TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE workers ADD COLUMN schedule_description TEXT NOT NULL DEFAULT ''`,
 	}
 	for _, m := range migrations {
 		if _, err := db.Exec(m); err != nil {

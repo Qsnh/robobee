@@ -12,6 +12,13 @@ type Config struct {
 	Database DatabaseConfig `yaml:"database"`
 	Workers  WorkersConfig  `yaml:"workers"`
 	Runtime  RuntimeConfig  `yaml:"runtime"`
+	AI       AIConfig       `yaml:"ai"`
+}
+
+type AIConfig struct {
+	BaseURL string `yaml:"base_url"`
+	APIKey  string `yaml:"api_key"`
+	Model   string `yaml:"model"`
 }
 
 type ServerConfig struct {

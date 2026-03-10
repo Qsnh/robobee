@@ -22,8 +22,9 @@ export function useCreateWorker() {
       name: string
       description: string
       prompt?: string
-      cron_expression?: string
+      schedule_description?: string
       schedule_enabled?: boolean
+      work_dir?: string
     }) => api.workers.create(data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["workers"] })

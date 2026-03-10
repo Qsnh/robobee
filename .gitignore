@@ -3,3 +3,4 @@ data/workers/
 *.exe
 /server
 .worktrees/
+config.yaml

@@ -8,6 +8,7 @@ export interface Worker {
   prompt: string
   work_dir: string
   cron_expression: string
+  schedule_description?: string
   schedule_enabled: boolean
   status: WorkerStatus
   created_at: string
