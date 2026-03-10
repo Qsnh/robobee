@@ -1,5 +1,6 @@
 import { useMemo } from "react"
 import { Link } from "react-router-dom"
+import { useTranslation } from "react-i18next"
 import { useExecutions } from "@/hooks/use-executions"
 import { Badge } from "@/components/ui/badge"
 import {
@@ -19,6 +20,7 @@ const statusColor: Record<string, string> = {
 }
 
 export function Executions() {
+  const { t } = useTranslation()
   const { data: executions = [], error } = useExecutions()
 
   const sessionGroups = useMemo(() => {
@@ -38,23 +40,23 @@ export function Executions() {
 
   return (
     <div>
-      <h1 className="text-2xl font-bold mb-6">Executions</h1>
+      <h1 className="text-2xl font-bold mb-6">{t("executions.title")}</h1>
       {error && <p className="text-red-500 mb-4">{error.message}</p>}
 
       {sessionGroups.length === 0 && !error && (
-        <p className="text-muted-foreground">No executions yet.</p>
+        <p className="text-muted-foreground">{t("executions.noExecutions")}</p>
       )}
 
       {sessionGroups.length > 0 && (
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>Session</TableHead>
-              <TableHead>Worker</TableHead>
-              <TableHead>Turns</TableHead>
-              <TableHead>Latest Status</TableHead>
-              <TableHead>Started</TableHead>
-              <TableHead>Last Completed</TableHead>
+              <TableHead>{t("executions.columns.session")}</TableHead>
+              <TableHead>{t("executions.columns.worker")}</TableHead>
+              <TableHead>{t("executions.columns.turns")}</TableHead>
+              <TableHead>{t("executions.columns.latestStatus")}</TableHead>
+              <TableHead>{t("executions.columns.started")}</TableHead>
+              <TableHead>{t("executions.columns.lastCompleted")}</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
