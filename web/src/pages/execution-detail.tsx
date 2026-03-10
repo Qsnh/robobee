@@ -1,5 +1,6 @@
 import { useState } from "react"
 import { useParams, Link, useNavigate } from "react-router-dom"
+import { useTranslation } from "react-i18next"
 import { useExecution, useReplyExecution } from "@/hooks/use-executions"
 import { LogViewer } from "@/components/log-viewer"
 import { Card, CardContent } from "@/components/ui/card"
@@ -16,6 +17,7 @@ const statusColor: Record<string, string> = {
 }
 
 export function ExecutionDetail() {
+  const { t } = useTranslation()
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
   const { data: execution, error: fetchError } = useExecution(id!)
@@ -30,7 +32,7 @@ export function ExecutionDetail() {
       const newExec = await replyExecution.mutateAsync({ executionId: id, message: replyText })
       navigate(`/sessions/${newExec.session_id}`)
     } catch (err) {
-      setReplyError(err instanceof Error ? err.message : "Failed to send reply")
+      setReplyError(err instanceof Error ? err.message : t("executionDetail.failedToSend"))
     }
   }
 
@@ -40,7 +42,7 @@ export function ExecutionDetail() {
     <div>
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-2xl font-bold">Execution Detail</h1>
+          <h1 className="text-2xl font-bold">{t("executionDetail.title")}</h1>
           <p className="text-sm text-muted-foreground font-mono">{execution.id}</p>
         </div>
         <Badge className={statusColor[execution.status] || ""}>
@@ -54,9 +56,9 @@ export function ExecutionDetail() {
 
       <Tabs defaultValue="logs">
         <TabsList>
-          <TabsTrigger value="logs">Logs</TabsTrigger>
-          <TabsTrigger value="result">Result</TabsTrigger>
-<TabsTrigger value="info">Info</TabsTrigger>
+          <TabsTrigger value="logs">{t("executionDetail.logs")}</TabsTrigger>
+          <TabsTrigger value="result">{t("executionDetail.result")}</TabsTrigger>
+<TabsTrigger value="info">{t("executionDetail.info")}</TabsTrigger>
         </TabsList>
 
         <TabsContent value="logs" className="mt-4">
@@ -71,7 +73,7 @@ export function ExecutionDetail() {
           <Card>
             <CardContent className="pt-6">
               <pre className="whitespace-pre-wrap text-sm">
-                {execution.result || "No result yet."}
+                {execution.result || t("executionDetail.noResult")}
               </pre>
             </CardContent>
           </Card>
@@ -80,27 +82,27 @@ export function ExecutionDetail() {
         <TabsContent value="info" className="mt-4">
           <Card>
             <CardContent className="pt-6 space-y-2">
-              <p><strong>Worker:</strong>{" "}
+              <p><strong>{t("executionDetail.worker")}:</strong>{" "}
                 <Link to={`/workers/${execution.worker_id}`} className="font-mono text-sm hover:underline">
                   {execution.worker_id.slice(0, 8)}...
                 </Link>
               </p>
-              <p><strong>Session:</strong>{" "}
+              <p><strong>{t("executionDetail.session")}:</strong>{" "}
                 <Link to={`/sessions/${execution.session_id}`} className="font-mono text-sm hover:underline">
                   {execution.session_id}
                 </Link>
               </p>
               {execution.trigger_input && (
                 <div>
-                  <strong>Trigger Input:</strong>
+                  <strong>{t("executionDetail.triggerInput")}:</strong>
                   <pre className="mt-1 whitespace-pre-wrap text-sm bg-muted p-2 rounded-md">
                     {execution.trigger_input}
                   </pre>
                 </div>
               )}
-              <p><strong>PID:</strong> {execution.ai_process_pid || "N/A"}</p>
-              <p><strong>Started:</strong> {execution.started_at ? new Date(execution.started_at).toLocaleString() : "-"}</p>
-              <p><strong>Completed:</strong> {execution.completed_at ? new Date(execution.completed_at).toLocaleString() : "-"}</p>
+              <p><strong>{t("executionDetail.pid")}:</strong> {execution.ai_process_pid || "N/A"}</p>
+              <p><strong>{t("executionDetail.started")}:</strong> {execution.started_at ? new Date(execution.started_at).toLocaleString() : "-"}</p>
+              <p><strong>{t("executionDetail.completed")}:</strong> {execution.completed_at ? new Date(execution.completed_at).toLocaleString() : "-"}</p>
             </CardContent>
           </Card>
         </TabsContent>
@@ -108,12 +110,12 @@ export function ExecutionDetail() {
 
       {execution.status === "completed" && (
         <div className="mt-6">
-          <h2 className="text-lg font-semibold mb-2">Reply</h2>
+          <h2 className="text-lg font-semibold mb-2">{t("executionDetail.reply")}</h2>
           {replyError && <p className="text-red-500 mb-2">{replyError}</p>}
           <Textarea
             value={replyText}
             onChange={(e) => setReplyText(e.target.value)}
-            placeholder="Continue the conversation..."
+            placeholder={t("executionDetail.replyPlaceholder")}
             rows={4}
             className="mb-2"
           />
@@ -121,7 +123,7 @@ export function ExecutionDetail() {
             onClick={handleReply}
             disabled={replyExecution.isPending || !replyText.trim()}
           >
-            {replyExecution.isPending ? "Sending..." : "Send Reply"}
+            {replyExecution.isPending ? t("common.sending") : t("executionDetail.sendReply")}
           </Button>
         </div>
       )}
