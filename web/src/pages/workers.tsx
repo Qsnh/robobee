@@ -1,5 +1,6 @@
 import { useState } from "react"
 import { Link } from "react-router-dom"
+import { useTranslation } from "react-i18next"
 import { useWorkers, useCreateWorker, useDeleteWorker } from "@/hooks/use-workers"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -24,6 +25,7 @@ const statusColor: Record<string, string> = {
 }
 
 export function Workers() {
+  const { t } = useTranslation()
   const { data: workers = [], error: fetchError } = useWorkers()
   const createWorker = useCreateWorker()
   const deleteWorker = useDeleteWorker()
@@ -68,41 +70,41 @@ export function Workers() {
   return (
     <div>
       <div className="flex items-center justify-between mb-6">
-        <h1 className="text-2xl font-bold">Workers</h1>
+        <h1 className="text-2xl font-bold">{t("workers.title")}</h1>
         <Dialog open={open} onOpenChange={setOpen}>
           <DialogTrigger render={<Button />}>
-            Create Worker
+            {t("workers.createWorker")}
           </DialogTrigger>
           <DialogContent>
             <DialogHeader>
-              <DialogTitle>Create Worker</DialogTitle>
+              <DialogTitle>{t("workers.createWorker")}</DialogTitle>
             </DialogHeader>
             <div className="space-y-4 max-h-[70vh] overflow-y-auto">
               <div>
-                <Label htmlFor="name">Name</Label>
+                <Label htmlFor="name">{t("workers.form.name")}</Label>
                 <Input
                   id="name"
                   value={name}
                   onChange={(e) => setName(e.target.value)}
-                  placeholder="e.g. report-bot"
+                  placeholder={t("workers.form.namePlaceholder")}
                 />
               </div>
               <div>
-                <Label htmlFor="desc">Description</Label>
+                <Label htmlFor="desc">{t("workers.form.description")}</Label>
                 <Textarea
                   id="desc"
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}
-                  placeholder="What does this worker do?"
+                  placeholder={t("workers.form.descriptionPlaceholder")}
                 />
               </div>
               <div>
-                <Label htmlFor="workdir">Work Directory (optional)</Label>
+                <Label htmlFor="workdir">{t("workers.form.workDir")}</Label>
                 <Input
                   id="workdir"
                   value={workDir}
                   onChange={(e) => setWorkDir(e.target.value)}
-                  placeholder="Leave blank to use default"
+                  placeholder={t("workers.form.workDirPlaceholder")}
                 />
               </div>
               <div className="flex items-center gap-2">
@@ -112,26 +114,26 @@ export function Workers() {
                   checked={scheduleEnabled}
                   onChange={(e) => setScheduleEnabled(e.target.checked)}
                 />
-                <Label htmlFor="schedule">Enable Schedule</Label>
+                <Label htmlFor="schedule">{t("workers.form.enableSchedule")}</Label>
               </div>
               {scheduleEnabled && (
                 <>
                   <div>
-                    <Label htmlFor="schedule-desc">定时描述</Label>
+                    <Label htmlFor="schedule-desc">{t("workers.form.scheduleDescription")}</Label>
                     <Input
                       id="schedule-desc"
                       value={scheduleDescription}
                       onChange={(e) => setScheduleDescription(e.target.value)}
-                      placeholder="例如：每天凌晨3点执行"
+                      placeholder={t("workers.form.scheduleDescriptionPlaceholder")}
                     />
                   </div>
                   <div>
-                    <Label htmlFor="prompt">Prompt</Label>
+                    <Label htmlFor="prompt">{t("workers.form.prompt")}</Label>
                     <Textarea
                       id="prompt"
                       value={prompt}
                       onChange={(e) => setPrompt(e.target.value)}
-                      placeholder="The instruction this worker will execute on schedule..."
+                      placeholder={t("workers.form.promptPlaceholder")}
                       rows={4}
                     />
                   </div>
@@ -139,7 +141,7 @@ export function Workers() {
               )}
 
               <Button onClick={handleCreate} className="w-full">
-                Create
+                {t("workers.createWorker")}
               </Button>
             </div>
           </DialogContent>
@@ -165,15 +167,17 @@ export function Workers() {
             </CardHeader>
             <CardContent>
               <p className="text-sm text-muted-foreground mb-2">
-                {w.description || "No description"}
+                {w.description || t("common.noDescription")}
               </p>
               <p className="text-xs text-muted-foreground">
-                {w.schedule_enabled ? `Schedule: ${w.schedule_description || w.cron_expression}` : "On-demand"}
+                {w.schedule_enabled
+                  ? `${t("common.schedule")}: ${w.schedule_description || w.cron_expression}`
+                  : t("common.onDemand")}
               </p>
               <div className="flex gap-2 mt-3">
                 <Link to={`/workers/${w.id}`}>
                   <Button variant="outline" size="sm">
-                    View
+                    {t("common.view")}
                   </Button>
                 </Link>
                 <Button
@@ -181,7 +185,7 @@ export function Workers() {
                   size="sm"
                   onClick={() => setDeleteTarget({ id: w.id, name: w.name })}
                 >
-                  Delete
+                  {t("common.delete")}
                 </Button>
               </div>
             </CardContent>
@@ -192,8 +196,12 @@ export function Workers() {
       <Dialog open={!!deleteTarget} onOpenChange={(o) => { if (!o) resetDelete() }}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>删除 Worker</DialogTitle>
-            <DialogDescription>确定要删除 <strong>{deleteTarget?.name}</strong> 吗？此操作无法撤销。</DialogDescription>
+            <DialogTitle>{t("workers.deleteDialog.title")}</DialogTitle>
+            <DialogDescription
+              dangerouslySetInnerHTML={{
+                __html: t("workers.deleteDialog.confirm", { name: deleteTarget?.name ?? "" }),
+              }}
+            />
           </DialogHeader>
           <div className="flex items-center gap-2 py-2">
             <input
@@ -202,14 +210,14 @@ export function Workers() {
               checked={deleteWorkDir}
               onChange={(e) => setDeleteWorkDir(e.target.checked)}
             />
-            <Label htmlFor="delete-work-dir">同时删除工作目录</Label>
+            <Label htmlFor="delete-work-dir">{t("workers.deleteDialog.deleteWorkDir")}</Label>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={resetDelete}>
-              取消
+              {t("common.cancel")}
             </Button>
             <Button variant="destructive" onClick={handleDeleteConfirm} disabled={deleteWorker.isPending}>
-              删除
+              {t("common.delete")}
             </Button>
           </DialogFooter>
         </DialogContent>
