@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Streamdown } from "streamdown";
 
 // ─── Data model ───────────────────────────────────────────────────────────────
@@ -186,6 +187,7 @@ function ToolCard({
 }: {
   entry: Extract<ParsedEntry, { kind: "tool" }>;
 }) {
+  const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const meta = getToolMeta(entry.name);
   const summary = meta.summary(entry.input);
@@ -206,14 +208,14 @@ function ToolCard({
       {open && (
         <div className="border-t border-gray-200 px-3 py-2 space-y-2">
           <div>
-            <div className="text-gray-400 mb-1">Input</div>
+            <div className="text-gray-400 mb-1">{t("logViewer.input")}</div>
             <pre className="text-gray-700 overflow-x-auto">
               {JSON.stringify(entry.input, null, 2)}
             </pre>
           </div>
           {entry.result !== undefined && (
             <div>
-              <div className="text-gray-400 mb-1">Output</div>
+              <div className="text-gray-400 mb-1">{t("logViewer.output")}</div>
               <pre
                 className={`overflow-x-auto ${entry.isError ? "text-red-600" : "text-green-600"}`}
               >
@@ -252,6 +254,7 @@ export function LogViewer({ executionId, status, logs }: LogViewerProps) {
   const [entries, setEntries] = useState<ParsedEntry[]>([]);
   const toolMapRef = useRef<Map<string, number>>(new Map());
   const logsEndRef = useRef<HTMLDivElement>(null);
+  const { t } = useTranslation();
 
   // Real-time WebSocket stream
   useEffect(() => {
@@ -296,7 +299,7 @@ export function LogViewer({ executionId, status, logs }: LogViewerProps) {
     <div className="bg-white text-gray-800 font-mono text-sm rounded-lg">
       {entries.length === 0 && (
         <p className="text-gray-400">
-          {status === "running" ? "Waiting for output..." : "No logs recorded."}
+          {status === "running" ? t("logViewer.waiting") : t("logViewer.noLogs")}
         </p>
       )}
       {entries.map((entry, i) => {
