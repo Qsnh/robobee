@@ -1,5 +1,6 @@
 import { useState, useMemo } from "react"
 import { useParams, useNavigate, Link } from "react-router-dom"
+import { useTranslation } from "react-i18next"
 import { useWorker, useWorkerExecutions, useUpdateWorker } from "@/hooks/use-workers"
 import { useSendMessage } from "@/hooks/use-executions"
 import { Button } from "@/components/ui/button"
@@ -30,6 +31,7 @@ const execStatusColor: Record<string, string> = {
 }
 
 export function WorkerDetail() {
+  const { t } = useTranslation()
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
   const { data: worker, error: workerError } = useWorker(id!)
@@ -65,7 +67,7 @@ export function WorkerDetail() {
       setMessage("")
       navigate(`/executions/${exec.id}`)
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "Failed to send message")
+      setError(e instanceof Error ? e.message : t("workerDetail.failedToSend"))
     }
   }
 
@@ -92,17 +94,17 @@ export function WorkerDetail() {
                 <Button size="sm" onClick={async () => {
                   await updateWorker.mutateAsync({ id: id!, data: { description: editDesc } })
                   setIsEditingDesc(false)
-                }}>Save</Button>
+                }}>{t("common.save")}</Button>
                 <Button size="sm" variant="outline" onClick={() => {
                   setIsEditingDesc(false)
                   setEditDesc(worker.description)
-                }}>Cancel</Button>
+                }}>{t("common.cancel")}</Button>
               </div>
             </div>
           ) : (
             <div className="group flex items-center gap-1 mt-1">
               <p className="text-muted-foreground text-sm">
-                {worker.description || "No description"}
+                {worker.description || t("common.noDescription")}
               </p>
               <button
                 className="opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-foreground"
@@ -117,21 +119,21 @@ export function WorkerDetail() {
           <Badge className={statusColor[worker.status] || ""}>{worker.status}</Badge>
           <Dialog open={msgDialogOpen} onOpenChange={setMsgDialogOpen}>
             <DialogTrigger render={<Button />}>
-              Send Message
+              {t("workerDetail.sendMessage")}
             </DialogTrigger>
             <DialogContent>
               <DialogHeader>
-                <DialogTitle>Send Message to {worker.name}</DialogTitle>
+                <DialogTitle>{t("workerDetail.sendMessageTitle", { name: worker.name })}</DialogTitle>
               </DialogHeader>
               <div className="space-y-4">
                 <Textarea
                   value={message}
                   onChange={(e) => setMessage(e.target.value)}
-                  placeholder="Enter your message..."
+                  placeholder={t("workerDetail.messagePlaceholder")}
                   rows={4}
                 />
                 <Button onClick={handleSendMessage} className="w-full">
-                  Send
+                  {t("common.send")}
                 </Button>
               </div>
             </DialogContent>
@@ -145,13 +147,13 @@ export function WorkerDetail() {
 
       <Tabs defaultValue="executions">
         <TabsList>
-          <TabsTrigger value="executions">Executions</TabsTrigger>
-          <TabsTrigger value="info">Info</TabsTrigger>
+          <TabsTrigger value="executions">{t("nav.executions")}</TabsTrigger>
+          <TabsTrigger value="info">{t("executionDetail.info")}</TabsTrigger>
         </TabsList>
 
         <TabsContent value="executions" className="mt-4">
           {sessionGroups.length === 0 && (
-            <p className="text-muted-foreground">No executions yet.</p>
+            <p className="text-muted-foreground">{t("executions.noExecutions")}</p>
           )}
           <div className="space-y-3">
             {sessionGroups.map((group) => {
@@ -188,16 +190,21 @@ export function WorkerDetail() {
         <TabsContent value="info" className="mt-4">
           <Card>
             <CardHeader>
-              <CardTitle>Worker Info</CardTitle>
+              <CardTitle>{t("workerDetail.workerInfo")}</CardTitle>
             </CardHeader>
             <CardContent className="space-y-2">
-              <p><strong>ID:</strong> <span className="font-mono text-sm">{worker.id}</span></p>
-              <p><strong>Schedule:</strong> {worker.schedule_enabled ? `Enabled (${worker.cron_expression})` : "Disabled"}</p>
-              <p><strong>Work Dir:</strong> {worker.work_dir}</p>
-              <p><strong>Created:</strong> {new Date(worker.created_at).toLocaleString()}</p>
+              <p><strong>{t("workerDetail.id")}:</strong> <span className="font-mono text-sm">{worker.id}</span></p>
+              <p>
+                <strong>{t("common.schedule")}:</strong>{" "}
+                {worker.schedule_enabled
+                  ? t("workerDetail.scheduleEnabled", { expr: worker.cron_expression })
+                  : t("workerDetail.scheduleDisabled")}
+              </p>
+              <p><strong>{t("workerDetail.workDir")}:</strong> {worker.work_dir}</p>
+              <p><strong>{t("workerDetail.created")}:</strong> {new Date(worker.created_at).toLocaleString()}</p>
               {worker.prompt && (
                 <div>
-                  <strong>Prompt:</strong>
+                  <strong>{t("workerDetail.prompt")}:</strong>
                   <pre className="mt-1 whitespace-pre-wrap text-sm bg-muted p-3 rounded-md">
                     {worker.prompt}
                   </pre>
