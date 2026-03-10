@@ -46,16 +46,20 @@ func (s *ExecutionStore) CreateWithSessionID(workerID, triggerInput, sessionID s
 	return s.create(workerID, triggerInput, sessionID)
 }
 
-const execColumns = `id, worker_id, session_id, trigger_input, status, result, logs, ai_process_pid, started_at, completed_at`
+const execSelect = `
+SELECT e.id, e.worker_id, e.session_id, e.trigger_input, e.status, e.result, e.logs,
+       e.ai_process_pid, e.started_at, e.completed_at, COALESCE(w.name, '')
+FROM worker_executions e
+LEFT JOIN workers w ON w.id = e.worker_id`
 
 func scanExecution(scanner interface{ Scan(...any) error }) (model.WorkerExecution, error) {
 	var e model.WorkerExecution
-	err := scanner.Scan(&e.ID, &e.WorkerID, &e.SessionID, &e.TriggerInput, &e.Status, &e.Result, &e.Logs, &e.AIProcessPID, &e.StartedAt, &e.CompletedAt)
+	err := scanner.Scan(&e.ID, &e.WorkerID, &e.SessionID, &e.TriggerInput, &e.Status, &e.Result, &e.Logs, &e.AIProcessPID, &e.StartedAt, &e.CompletedAt, &e.WorkerName)
 	return e, err
 }
 
 func (s *ExecutionStore) GetByID(id string) (model.WorkerExecution, error) {
-	row := s.db.QueryRow(`SELECT `+execColumns+` FROM worker_executions WHERE id = ?`, id)
+	row := s.db.QueryRow(execSelect+` WHERE e.id = ?`, id)
 	e, err := scanExecution(row)
 	if err != nil {
 		return model.WorkerExecution{}, fmt.Errorf("get execution: %w", err)
@@ -64,7 +68,7 @@ func (s *ExecutionStore) GetByID(id string) (model.WorkerExecution, error) {
 }
 
 func (s *ExecutionStore) GetBySessionID(sessionID string) (model.WorkerExecution, error) {
-	row := s.db.QueryRow(`SELECT `+execColumns+` FROM worker_executions WHERE session_id = ?`, sessionID)
+	row := s.db.QueryRow(execSelect+` WHERE e.session_id = ?`, sessionID)
 	e, err := scanExecution(row)
 	if err != nil {
 		return model.WorkerExecution{}, fmt.Errorf("get execution by session: %w", err)
@@ -73,7 +77,7 @@ func (s *ExecutionStore) GetBySessionID(sessionID string) (model.WorkerExecution
 }
 
 func (s *ExecutionStore) List() ([]model.WorkerExecution, error) {
-	rows, err := s.db.Query(`SELECT ` + execColumns + ` FROM worker_executions ORDER BY started_at DESC`)
+	rows, err := s.db.Query(execSelect + ` ORDER BY e.started_at DESC`)
 	if err != nil {
 		return nil, fmt.Errorf("list executions: %w", err)
 	}
@@ -91,7 +95,7 @@ func (s *ExecutionStore) List() ([]model.WorkerExecution, error) {
 }
 
 func (s *ExecutionStore) ListBySessionID(sessionID string) ([]model.WorkerExecution, error) {
-	rows, err := s.db.Query(`SELECT `+execColumns+` FROM worker_executions WHERE session_id = ? ORDER BY started_at ASC`, sessionID)
+	rows, err := s.db.Query(execSelect+` WHERE e.session_id = ? ORDER BY e.started_at ASC`, sessionID)
 	if err != nil {
 		return nil, fmt.Errorf("list executions by session: %w", err)
 	}
@@ -109,7 +113,7 @@ func (s *ExecutionStore) ListBySessionID(sessionID string) ([]model.WorkerExecut
 }
 
 func (s *ExecutionStore) ListByWorkerID(workerID string) ([]model.WorkerExecution, error) {
-	rows, err := s.db.Query(`SELECT `+execColumns+` FROM worker_executions WHERE worker_id = ? ORDER BY started_at DESC`, workerID)
+	rows, err := s.db.Query(execSelect+` WHERE e.worker_id = ? ORDER BY e.started_at DESC`, workerID)
 	if err != nil {
 		return nil, fmt.Errorf("list executions by worker: %w", err)
 	}
