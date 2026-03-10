@@ -37,7 +37,6 @@ type Manager struct {
 	cfg            config.Config
 	workerStore    *store.WorkerStore
 	executionStore *store.ExecutionStore
-	memoryStore    *store.MemoryStore
 	aiClient       *ai.Client
 
 	activeRuntimes map[string]Runtime      // execution_id -> runtime
@@ -49,14 +48,12 @@ func NewManager(
 	cfg config.Config,
 	ws *store.WorkerStore,
 	es *store.ExecutionStore,
-	ms *store.MemoryStore,
 	aiClient *ai.Client,
 ) *Manager {
 	return &Manager{
 		cfg:            cfg,
 		workerStore:    ws,
 		executionStore: es,
-		memoryStore:    ms,
 		aiClient:       aiClient,
 		activeRuntimes: make(map[string]Runtime),
 		logSubscribers: make(map[string][]chan Output),

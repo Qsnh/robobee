@@ -36,13 +36,12 @@ func main() {
 	// Create stores
 	workerStore := store.NewWorkerStore(db)
 	execStore := store.NewExecutionStore(db)
-	memoryStore := store.NewMemoryStore(db)
 
 	// Initialize AI client
 	aiClient := ai.NewClient(cfg.AI)
 
 	// Create worker manager
-	mgr := worker.NewManager(cfg, workerStore, execStore, memoryStore, aiClient)
+	mgr := worker.NewManager(cfg, workerStore, execStore, aiClient)
 
 	// Start cron scheduler
 	sched := scheduler.New(workerStore, mgr)
@@ -51,7 +50,7 @@ func main() {
 	}
 
 	// Start HTTP API
-	srv := api.NewServer(workerStore, execStore, memoryStore, mgr, sched)
+	srv := api.NewServer(workerStore, execStore, mgr, sched)
 
 	// Graceful shutdown
 	quit := make(chan os.Signal, 1)

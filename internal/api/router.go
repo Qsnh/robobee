@@ -17,7 +17,6 @@ type Server struct {
 	router         *gin.Engine
 	workerStore    *store.WorkerStore
 	executionStore *store.ExecutionStore
-	memoryStore    *store.MemoryStore
 	manager        *worker.Manager
 	scheduler      WorkerScheduler
 }
@@ -25,7 +24,6 @@ type Server struct {
 func NewServer(
 	ws *store.WorkerStore,
 	es *store.ExecutionStore,
-	ms *store.MemoryStore,
 	mgr *worker.Manager,
 	sched WorkerScheduler,
 ) *Server {
@@ -43,7 +41,6 @@ func NewServer(
 		router:         router,
 		workerStore:    ws,
 		executionStore: es,
-		memoryStore:    ms,
 		manager:        mgr,
 		scheduler:      sched,
 	}

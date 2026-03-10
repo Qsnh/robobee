@@ -50,15 +50,6 @@ func migrate(db *sql.DB) error {
 		FOREIGN KEY (worker_id) REFERENCES workers(id) ON DELETE CASCADE
 	);
 
-	CREATE TABLE IF NOT EXISTS worker_memories (
-		id TEXT PRIMARY KEY,
-		worker_id TEXT NOT NULL,
-		execution_id TEXT NOT NULL,
-		summary TEXT NOT NULL,
-		created_at DATETIME NOT NULL DEFAULT (datetime('now')),
-		FOREIGN KEY (worker_id) REFERENCES workers(id) ON DELETE CASCADE,
-		FOREIGN KEY (execution_id) REFERENCES worker_executions(id) ON DELETE CASCADE
-	);
 	`
 	if _, err := db.Exec(schema); err != nil {
 		return err
