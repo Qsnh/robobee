@@ -175,7 +175,7 @@ function appendEntry(
 
 function AssistantText({ text }: { text: string }) {
   return (
-    <div className="border-l-2 border-blue-500 pl-3 my-2 text-sm text-gray-200 prose prose-invert prose-sm max-w-none">
+    <div className="border-l-2 border-blue-400 pl-3 my-2 text-sm text-gray-700 prose prose-sm max-w-none">
       <Streamdown mode="static">{text}</Streamdown>
     </div>
   );
@@ -191,31 +191,31 @@ function ToolCard({
   const summary = meta.summary(entry.input);
 
   return (
-    <div className="my-1 border border-gray-700 rounded text-xs">
+    <div className="my-1 border border-gray-200 rounded text-xs">
       <button
-        className="w-full text-left px-3 py-1.5 flex items-center gap-2 hover:bg-gray-800 transition-colors"
+        className="w-full text-left px-3 py-1.5 flex items-center gap-2 hover:bg-gray-50 transition-colors"
         onClick={() => setOpen((v) => !v)}
       >
-        <span className="font-mono text-yellow-400">{meta.icon}</span>
-        <span className="font-semibold text-yellow-300">{entry.name}</span>
-        <span className="text-gray-400 font-mono truncate flex-1">
+        <span className="font-mono text-yellow-600">{meta.icon}</span>
+        <span className="font-semibold text-yellow-700">{entry.name}</span>
+        <span className="text-gray-500 font-mono truncate flex-1">
           {summary}
         </span>
-        <span className="text-gray-500 shrink-0">{open ? "▲" : "▼"}</span>
+        <span className="text-gray-400 shrink-0">{open ? "▲" : "▼"}</span>
       </button>
       {open && (
-        <div className="border-t border-gray-700 px-3 py-2 space-y-2">
+        <div className="border-t border-gray-200 px-3 py-2 space-y-2">
           <div>
-            <div className="text-gray-500 mb-1">Input</div>
-            <pre className="text-gray-300 overflow-x-auto">
+            <div className="text-gray-400 mb-1">Input</div>
+            <pre className="text-gray-700 overflow-x-auto">
               {JSON.stringify(entry.input, null, 2)}
             </pre>
           </div>
           {entry.result !== undefined && (
             <div>
-              <div className="text-gray-500 mb-1">Output</div>
+              <div className="text-gray-400 mb-1">Output</div>
               <pre
-                className={`overflow-x-auto ${entry.isError ? "text-red-400" : "text-green-400"}`}
+                className={`overflow-x-auto ${entry.isError ? "text-red-600" : "text-green-600"}`}
               >
                 {entry.result}
               </pre>
@@ -233,8 +233,8 @@ function ResultCard({
   entry: Extract<ParsedEntry, { kind: "result" }>;
 }) {
   return (
-    <div className="my-2 bg-green-950 border border-green-700 rounded px-3 py-2 text-sm text-green-300">
-      <span className="font-semibold text-green-400 mr-2">✓ Result</span>
+    <div className="my-2 bg-green-50 border border-green-300 rounded px-3 py-2 text-sm text-green-700">
+      <span className="font-semibold text-green-600 mr-2">✓ Result</span>
       {entry.text}
     </div>
   );
@@ -293,9 +293,9 @@ export function LogViewer({ executionId, status, logs }: LogViewerProps) {
   }, [entries]);
 
   return (
-    <div className="bg-gray-950 text-green-400 font-mono text-sm p-4 rounded-lg max-h-[600px] overflow-y-auto">
+    <div className="bg-white text-gray-800 font-mono text-sm p-4 rounded-lg max-h-[600px] overflow-y-auto">
       {entries.length === 0 && (
-        <p className="text-gray-500">
+        <p className="text-gray-400">
           {status === "running" ? "Waiting for output..." : "No logs recorded."}
         </p>
       )}
@@ -311,10 +311,10 @@ export function LogViewer({ executionId, status, logs }: LogViewerProps) {
             key={i}
             className={
               entry.logType === "stderr"
-                ? "text-red-400"
+                ? "text-red-500"
                 : entry.logType === "error"
-                  ? "text-red-500 font-bold"
-                  : "text-green-400"
+                  ? "text-red-700 font-bold"
+                  : "text-green-700"
             }
           >
             {entry.content}
