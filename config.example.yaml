@@ -22,3 +22,8 @@ feishu:
   enabled: false
   app_id: ""
   app_secret: ""
+
+dingtalk:
+  enabled: false
+  client_id: ""
+  client_secret: ""

@@ -14,6 +14,7 @@ type Config struct {
 	Runtime  RuntimeConfig  `yaml:"runtime"`
 	AI       AIConfig       `yaml:"ai"`
 	Feishu   FeishuConfig   `yaml:"feishu"`
+	DingTalk DingTalkConfig `yaml:"dingtalk"`
 }
 
 type AIConfig struct {
@@ -26,6 +27,12 @@ type FeishuConfig struct {
 	Enabled   bool   `yaml:"enabled"`
 	AppID     string `yaml:"app_id"`
 	AppSecret string `yaml:"app_secret"`
+}
+
+type DingTalkConfig struct {
+	Enabled      bool   `yaml:"enabled"`
+	ClientID     string `yaml:"client_id"`
+	ClientSecret string `yaml:"client_secret"`
 }
 
 type ServerConfig struct {
