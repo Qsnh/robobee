@@ -49,22 +49,8 @@ type chatResponse struct {
 	} `json:"choices"`
 }
 
-func (c *Client) CronFromDescription(ctx context.Context, description string) (string, error) {
-	reqBody := chatRequest{
-		Model: c.model,
-		Messages: []chatMessage{
-			{
-				Role:    "system",
-				Content: "You are a cron expression generator. Convert the schedule description to a valid 5-field cron expression (minute hour day month weekday). Return ONLY the cron expression, nothing else. No explanations, no markdown.",
-			},
-			{
-				Role:    "user",
-				Content: description,
-			},
-		},
-	}
-
-	data, err := json.Marshal(reqBody)
+func (c *Client) chatCompletion(ctx context.Context, messages []chatMessage) (string, error) {
+	data, err := json.Marshal(chatRequest{Model: c.model, Messages: messages})
 	if err != nil {
 		return "", fmt.Errorf("marshal request: %w", err)
 	}
@@ -95,11 +81,21 @@ func (c *Client) CronFromDescription(ctx context.Context, description string) (s
 		return "", fmt.Errorf("AI service returned no choices")
 	}
 
-	cron := strings.TrimSpace(chatResp.Choices[0].Message.Content)
+	return chatResp.Choices[0].Message.Content, nil
+}
+
+func (c *Client) CronFromDescription(ctx context.Context, description string) (string, error) {
+	content, err := c.chatCompletion(ctx, []chatMessage{
+		{Role: "system", Content: "You are a cron expression generator. Convert the schedule description to a valid 5-field cron expression (minute hour day month weekday). Return ONLY the cron expression, nothing else. No explanations, no markdown."},
+		{Role: "user", Content: description},
+	})
+	if err != nil {
+		return "", err
+	}
+	cron := strings.TrimSpace(content)
 	if cron == "" {
 		return "", fmt.Errorf("AI service returned empty cron expression")
 	}
-
 	return cron, nil
 }
 
@@ -120,55 +116,17 @@ func (c *Client) RouteToWorker(ctx context.Context, message string, workers []Wo
 		validIDs[w.ID] = true
 	}
 
-	reqBody := chatRequest{
-		Model: c.model,
-		Messages: []chatMessage{
-			{
-				Role:    "system",
-				Content: "You are a task router. Given a list of workers and a user message, return ONLY the ID of the most suitable worker. No explanation, no markdown, just the ID.",
-			},
-			{
-				Role:    "user",
-				Content: fmt.Sprintf("Workers:\n%s\nUser message: %s", workerList.String(), message),
-			},
-		},
-	}
-
-	data, err := json.Marshal(reqBody)
+	workerID, err := c.chatCompletion(ctx, []chatMessage{
+		{Role: "system", Content: "You are a task router. Given a list of workers and a user message, return ONLY the ID of the most suitable worker. No explanation, no markdown, just the ID."},
+		{Role: "user", Content: fmt.Sprintf("Workers:\n%s\nUser message: %s", workerList.String(), message)},
+	})
 	if err != nil {
-		return "", fmt.Errorf("marshal request: %w", err)
+		return "", err
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/chat/completions", bytes.NewReader(data))
-	if err != nil {
-		return "", fmt.Errorf("create request: %w", err)
-	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+c.apiKey)
-
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return "", fmt.Errorf("http request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return "", fmt.Errorf("AI service returned status %d", resp.StatusCode)
-	}
-
-	var chatResp chatResponse
-	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&chatResp); err != nil {
-		return "", fmt.Errorf("decode response: %w", err)
-	}
-
-	if len(chatResp.Choices) == 0 {
-		return "", fmt.Errorf("AI service returned no choices")
-	}
-
-	workerID := strings.TrimSpace(chatResp.Choices[0].Message.Content)
+	workerID = strings.TrimSpace(workerID)
 	if !validIDs[workerID] {
 		return "", fmt.Errorf("AI returned unknown worker ID %q", workerID)
 	}
-
 	return workerID, nil
 }
