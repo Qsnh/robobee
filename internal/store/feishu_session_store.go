@@ -38,6 +38,12 @@ func (s *FeishuSessionStore) GetSession(chatID string) (*FeishuSession, error) {
 	return &sess, nil
 }
 
+// DeleteSession removes the session record for a chat.
+func (s *FeishuSessionStore) DeleteSession(chatID string) error {
+	_, err := s.db.Exec(`DELETE FROM feishu_sessions WHERE chat_id = ?`, chatID)
+	return err
+}
+
 // UpsertSession creates or updates the session mapping for a chat.
 func (s *FeishuSessionStore) UpsertSession(chatID, workerID, sessionID, lastExecutionID string) error {
 	_, err := s.db.Exec(

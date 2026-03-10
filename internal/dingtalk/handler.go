@@ -20,6 +20,7 @@ const (
 	ackMessage   = "⏳ 正在处理，请稍候…"
 	errorMessage = "❌ 处理失败，请稍后重试"
 	noWorkerMsg  = "❌ 没有找到合适的 Worker，请换个描述试试"
+	clearMessage = "✅ 上下文已重置"
 )
 
 type Handler struct {
@@ -48,6 +49,16 @@ func (h *Handler) OnMessage(ctx context.Context, data *chatbot.BotCallbackDataMo
 
 	chatID := data.ConversationId
 	sessionWebhook := data.SessionWebhook
+
+	if strings.EqualFold(text, "clear") {
+		if err := h.sessionStore.DeleteSession(chatID); err != nil {
+			log.Printf("dingtalk: delete session error: %v", err)
+			h.sendMessage(ctx, sessionWebhook, errorMessage)
+			return []byte(""), nil
+		}
+		h.sendMessage(ctx, sessionWebhook, clearMessage)
+		return []byte(""), nil
+	}
 
 	// Acknowledge immediately.
 	h.sendMessage(ctx, sessionWebhook, ackMessage)

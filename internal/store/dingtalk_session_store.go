@@ -38,6 +38,12 @@ func (s *DingTalkSessionStore) GetSession(chatID string) (*DingTalkSession, erro
 	return &sess, nil
 }
 
+// DeleteSession removes the session record for a chat.
+func (s *DingTalkSessionStore) DeleteSession(chatID string) error {
+	_, err := s.db.Exec(`DELETE FROM dingtalk_sessions WHERE chat_id = ?`, chatID)
+	return err
+}
+
 // UpsertSession creates or updates the session mapping for a chat.
 func (s *DingTalkSessionStore) UpsertSession(chatID, workerID, sessionID, lastExecutionID string) error {
 	_, err := s.db.Exec(

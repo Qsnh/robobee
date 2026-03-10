@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"log"
+	"strings"
 	"time"
 
 	lark "github.com/larksuite/oapi-sdk-go/v3"
@@ -21,6 +22,7 @@ const (
 	ackMessage   = "⏳ 正在处理，请稍候…"
 	errorMessage = "❌ 处理失败，请稍后重试"
 	noWorkerMsg  = "❌ 没有找到合适的 Worker，请换个描述试试"
+	clearMessage = "✅ 上下文已重置"
 )
 
 type Handler struct {
@@ -61,6 +63,16 @@ func (h *Handler) OnMessage(ctx context.Context, event *larkim.P2MessageReceiveV
 
 	chatID := *msg.ChatId
 	chatType := *msg.ChatType
+
+	if strings.EqualFold(strings.TrimSpace(text), "clear") {
+		if err := h.sessionStore.DeleteSession(chatID); err != nil {
+			log.Printf("feishu: delete session error: %v", err)
+			h.sendMessage(ctx, chatID, chatType, *msg.MessageId, errorMessage)
+			return nil
+		}
+		h.sendMessage(ctx, chatID, chatType, *msg.MessageId, clearMessage)
+		return nil
+	}
 
 	// Acknowledge immediately
 	h.sendMessage(ctx, chatID, chatType, *msg.MessageId, ackMessage)
