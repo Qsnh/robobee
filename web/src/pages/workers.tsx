@@ -1,6 +1,6 @@
 import { useState } from "react"
 import { Link } from "react-router-dom"
-import { useTranslation } from "react-i18next"
+import { useTranslation, Trans } from "react-i18next"
 import { useWorkers, useCreateWorker, useDeleteWorker } from "@/hooks/use-workers"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -197,11 +197,13 @@ export function Workers() {
         <DialogContent>
           <DialogHeader>
             <DialogTitle>{t("workers.deleteDialog.title")}</DialogTitle>
-            <DialogDescription
-              dangerouslySetInnerHTML={{
-                __html: t("workers.deleteDialog.confirm", { name: deleteTarget?.name ?? "" }),
-              }}
-            />
+            <DialogDescription>
+              <Trans
+                i18nKey="workers.deleteDialog.confirm"
+                values={{ name: deleteTarget?.name ?? "" }}
+                components={{ strong: <strong /> }}
+              />
+            </DialogDescription>
           </DialogHeader>
           <div className="flex items-center gap-2 py-2">
             <input
