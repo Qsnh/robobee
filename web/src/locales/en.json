@@ -46,6 +46,8 @@
   "executions": {
     "title": "Executions",
     "noExecutions": "No executions yet.",
+    "turnCount_one": "{{count}} turn",
+    "turnCount_other": "{{count}} turns",
     "columns": {
       "session": "Session",
       "worker": "Worker",

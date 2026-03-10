@@ -46,6 +46,8 @@
   "executions": {
     "title": "执行记录",
     "noExecutions": "还没有执行记录。",
+    "turnCount_one": "{{count}} 轮",
+    "turnCount_other": "{{count}} 轮",
     "columns": {
       "session": "会话",
       "worker": "工作者",

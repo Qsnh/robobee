@@ -174,7 +174,7 @@ export function WorkerDetail() {
                         {oldest.trigger_input && ` | ${oldest.trigger_input.slice(0, 50)}${oldest.trigger_input.length > 50 ? "..." : ""}`}
                       </p>
                       <p className="text-xs text-muted-foreground">
-                        {group.length} turn{group.length !== 1 ? "s" : ""}
+                        {t("executions.turnCount", { count: group.length })}
                       </p>
                     </div>
                     <Badge className={execStatusColor[latest.status] || ""}>

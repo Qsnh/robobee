@@ -60,7 +60,7 @@ export function SessionDetail() {
               {t("sessionDetail.worker")}: {workerId.slice(0, 8)}...
             </Link>
           )}
-          <span>{executions.length} turn{executions.length !== 1 ? "s" : ""}</span>
+          <span>{t("executions.turnCount", { count: executions.length })}</span>
         </div>
       </div>
 

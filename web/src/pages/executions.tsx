@@ -82,7 +82,7 @@ export function Executions() {
                       {latest.worker_id.slice(0, 8)}...
                     </Link>
                   </TableCell>
-                  <TableCell className="text-sm">{group.length} turn{group.length !== 1 ? "s" : ""}</TableCell>
+                  <TableCell className="text-sm">{t("executions.turnCount", { count: group.length })}</TableCell>
                   <TableCell>
                     <Badge className={statusColor[latest.status] || ""}>{latest.status}</Badge>
                   </TableCell>
