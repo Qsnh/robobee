@@ -11,6 +11,7 @@ import (
 	"github.com/robobee/core/internal/ai"
 	"github.com/robobee/core/internal/api"
 	"github.com/robobee/core/internal/config"
+	"github.com/robobee/core/internal/dingtalk"
 	"github.com/robobee/core/internal/feishu"
 	"github.com/robobee/core/internal/scheduler"
 	"github.com/robobee/core/internal/store"
@@ -59,6 +60,18 @@ func main() {
 		go func() {
 			if err := feishu.Start(context.Background(), cfg.Feishu, workerStore, feishuSessionStore, mgr, aiClient); err != nil {
 				log.Printf("feishu bot error: %v", err)
+			}
+		}()
+	}
+
+	// Start DingTalk bot if enabled.
+	// Known limitation: uses context.Background() so the stream client won't receive
+	// a cancellation signal on shutdown — os.Exit(0) terminates it abruptly.
+	if cfg.DingTalk.Enabled {
+		dingtalkSessionStore := store.NewDingTalkSessionStore(db)
+		go func() {
+			if err := dingtalk.Start(context.Background(), cfg.DingTalk, workerStore, dingtalkSessionStore, mgr, aiClient); err != nil {
+				log.Printf("dingtalk bot error: %v", err)
 			}
 		}()
 	}
