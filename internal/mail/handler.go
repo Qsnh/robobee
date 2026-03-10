@@ -86,6 +86,7 @@ func NewHandler(
 }
 
 func (h *Handler) processEmail(em EmailMessage) {
+	log.Printf("mail: received email from=%s subject=%q thread=%s", em.From, em.Subject, em.ThreadID)
 	h.reply(em, ackMessage)
 	go h.process(em)
 }
@@ -99,6 +100,7 @@ func (h *Handler) process(em EmailMessage) {
 		h.reply(em, noWorkerMsg)
 		return
 	}
+	log.Printf("mail: routed to worker=%s thread=%s", workerID, em.ThreadID)
 
 	sess, err := h.sessionStore.GetSession(em.ThreadID)
 	if err != nil {
@@ -109,8 +111,10 @@ func (h *Handler) process(em EmailMessage) {
 
 	var exec model.WorkerExecution
 	if sess != nil && sess.GetLastExecutionID() != "" {
+		log.Printf("mail: replying to execution id=%s thread=%s", sess.GetLastExecutionID(), em.ThreadID)
 		exec, err = h.manager.ReplyExecution(ctx, sess.GetLastExecutionID(), em.Body)
 	} else {
+		log.Printf("mail: starting new execution worker=%s thread=%s", workerID, em.ThreadID)
 		exec, err = h.manager.ExecuteWorker(ctx, workerID, em.Body)
 	}
 	if err != nil {
@@ -118,6 +122,7 @@ func (h *Handler) process(em EmailMessage) {
 		h.reply(em, errorMessage)
 		return
 	}
+	log.Printf("mail: execution created id=%s", exec.ID)
 
 	if err := h.sessionStore.UpsertSession(em.ThreadID, workerID, exec.SessionID, exec.ID); err != nil {
 		log.Printf("mail: upsert session error: %v", err)
@@ -137,17 +142,20 @@ func (h *Handler) waitForResult(executionID string) string {
 		}
 		switch exec.Status {
 		case model.ExecStatusCompleted:
+			log.Printf("mail: execution completed id=%s", executionID)
 			if exec.Result != "" {
 				return exec.Result
 			}
 			return "✅ 任务已完成"
 		case model.ExecStatusFailed:
+			log.Printf("mail: execution failed id=%s result=%q", executionID, exec.Result)
 			return "❌ 任务执行失败: " + exec.Result
 		}
 		if h.pollInterval > 0 {
 			time.Sleep(h.pollInterval)
 		}
 	}
+	log.Printf("mail: execution timed out id=%s", executionID)
 	return timeoutMsg
 }
 
@@ -174,6 +182,8 @@ func (h *Handler) reply(em EmailMessage, bodyMD string) {
 		References: refs,
 	}); err != nil {
 		log.Printf("mail: send reply error: %v", err)
+	} else {
+		log.Printf("mail: reply sent to=%s subject=%q", em.From, subject)
 	}
 }
 

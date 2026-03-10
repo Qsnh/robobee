@@ -47,6 +47,9 @@ func Start(
 				log.Printf("mail: fetch unseen error: %v", err)
 				continue
 			}
+			if len(emails) > 0 {
+				log.Printf("mail: fetched %d new email(s)", len(emails))
+			}
 			for _, em := range emails {
 				handler.processEmail(em)
 			}

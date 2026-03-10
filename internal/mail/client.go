@@ -83,6 +83,7 @@ func (c *IMAPClient) FetchUnseen() ([]EmailMessage, error) {
 	if err != nil {
 		return nil, fmt.Errorf("imap search: %w", err)
 	}
+	log.Printf("mail: imap found %d unseen message(s)", len(uids))
 	if len(uids) == 0 {
 		return nil, nil
 	}
@@ -237,7 +238,11 @@ func (s *SMTPSender) Send(msg OutgoingEmail) error {
 
 	host, _, _ := splitHost(s.cfg.SMTPHost)
 	auth := smtp.PlainAuth("", s.cfg.Username, s.cfg.Password, host)
-	return smtp.SendMail(s.cfg.SMTPHost, auth, s.cfg.Username, []string{msg.To}, buf.Bytes())
+	if err := smtp.SendMail(s.cfg.SMTPHost, auth, s.cfg.Username, []string{msg.To}, buf.Bytes()); err != nil {
+		return err
+	}
+	log.Printf("mail: smtp sent to=%s subject=%q", msg.To, msg.Subject)
+	return nil
 }
 
 // markdownToHTML converts Markdown text to an HTML string.
