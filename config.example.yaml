@@ -17,3 +17,8 @@ ai:
   base_url: https://api.openai.com/v1
   api_key: ""
   model: gpt-4o-mini
+
+feishu:
+  enabled: false
+  app_id: ""
+  app_secret: ""

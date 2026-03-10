@@ -13,12 +13,19 @@ type Config struct {
 	Workers  WorkersConfig  `yaml:"workers"`
 	Runtime  RuntimeConfig  `yaml:"runtime"`
 	AI       AIConfig       `yaml:"ai"`
+	Feishu   FeishuConfig   `yaml:"feishu"`
 }
 
 type AIConfig struct {
 	BaseURL string `yaml:"base_url"`
 	APIKey  string `yaml:"api_key"`
 	Model   string `yaml:"model"`
+}
+
+type FeishuConfig struct {
+	Enabled   bool   `yaml:"enabled"`
+	AppID     string `yaml:"app_id"`
+	AppSecret string `yaml:"app_secret"`
 }
 
 type ServerConfig struct {
