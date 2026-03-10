@@ -11,6 +11,7 @@ import (
 	larkws "github.com/larksuite/oapi-sdk-go/v3/ws"
 
 	"github.com/robobee/core/internal/ai"
+	"github.com/robobee/core/internal/botrouter"
 	"github.com/robobee/core/internal/config"
 	"github.com/robobee/core/internal/store"
 	"github.com/robobee/core/internal/worker"
@@ -28,7 +29,7 @@ func Start(
 ) error {
 	larkClient := lark.NewClient(cfg.AppID, cfg.AppSecret)
 
-	router := NewRouter(aiClient, workerStore)
+	router := botrouter.NewRouter(aiClient, workerStore)
 	handler := NewHandler(larkClient, router, sessionStore, mgr)
 
 	eventHandler := dispatcher.NewEventDispatcher("", "").

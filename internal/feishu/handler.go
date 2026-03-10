@@ -9,6 +9,7 @@ import (
 	lark "github.com/larksuite/oapi-sdk-go/v3"
 	larkim "github.com/larksuite/oapi-sdk-go/v3/service/im/v1"
 
+	"github.com/robobee/core/internal/botrouter"
 	"github.com/robobee/core/internal/model"
 	"github.com/robobee/core/internal/store"
 	"github.com/robobee/core/internal/worker"
@@ -24,14 +25,14 @@ const (
 
 type Handler struct {
 	larkClient   *lark.Client
-	router       *Router
+	router       *botrouter.Router
 	sessionStore *store.FeishuSessionStore
 	manager      *worker.Manager
 }
 
 func NewHandler(
 	larkClient *lark.Client,
-	router *Router,
+	router *botrouter.Router,
 	sessionStore *store.FeishuSessionStore,
 	manager *worker.Manager,
 ) *Handler {
