@@ -32,6 +32,13 @@ export function useSessionExecutions(sessionId: string) {
     queryKey: ["sessions", sessionId, "executions"],
     queryFn: () => api.sessions.executions(sessionId),
     enabled: !!sessionId,
+    refetchInterval: (query) => {
+      const executions = query.state.data ?? []
+      const hasActive = executions.some(
+        (e) => e.status === "running" || e.status === "pending"
+      )
+      return hasActive ? 3000 : false
+    },
   })
 }
 

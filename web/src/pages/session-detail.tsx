@@ -104,6 +104,11 @@ export function SessionDetail() {
                   executionId={exec.id}
                   status={exec.status}
                   logs={exec.logs}
+                  onComplete={
+                    index === executions.length - 1
+                      ? () => queryClient.invalidateQueries({ queryKey: ["sessions", sessionId, "executions"] })
+                      : undefined
+                  }
                 />
               </CardContent>
             </Card>
