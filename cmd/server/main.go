@@ -14,7 +14,6 @@ import (
 	"github.com/robobee/core/internal/config"
 	"github.com/robobee/core/internal/platform/dingtalk"
 	"github.com/robobee/core/internal/platform/feishu"
-	"github.com/robobee/core/internal/platform/mail"
 	"github.com/robobee/core/internal/platform"
 	"github.com/robobee/core/internal/scheduler"
 	"github.com/robobee/core/internal/store"
@@ -67,9 +66,6 @@ func main() {
 	}
 	if cfg.DingTalk.Enabled {
 		platManager.Register(dingtalk.NewPlatform(cfg.DingTalk))
-	}
-	if cfg.Mail.Enabled {
-		platManager.Register(mail.NewPlatform(cfg.Mail))
 	}
 
 	// Graceful shutdown context
