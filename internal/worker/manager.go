@@ -37,7 +37,7 @@ type Manager struct {
 	cfg            config.Config
 	workerStore    *store.WorkerStore
 	executionStore *store.ExecutionStore
-	aiClient       *ai.Client
+	cronResolver   ai.CronResolver
 
 	activeRuntimes map[string]Runtime      // execution_id -> runtime
 	logSubscribers map[string][]chan Output // execution_id -> subscribers
@@ -48,20 +48,20 @@ func NewManager(
 	cfg config.Config,
 	ws *store.WorkerStore,
 	es *store.ExecutionStore,
-	aiClient *ai.Client,
+	cronResolver ai.CronResolver,
 ) *Manager {
 	return &Manager{
 		cfg:            cfg,
 		workerStore:    ws,
 		executionStore: es,
-		aiClient:       aiClient,
+		cronResolver:   cronResolver,
 		activeRuntimes: make(map[string]Runtime),
 		logSubscribers: make(map[string][]chan Output),
 	}
 }
 
 func (m *Manager) ResolveCron(ctx context.Context, description string) (string, error) {
-	return m.aiClient.CronFromDescription(ctx, description)
+	return m.cronResolver.CronFromDescription(ctx, description)
 }
 
 func (m *Manager) CreateWorker(
@@ -91,7 +91,7 @@ func (m *Manager) CreateWorker(
 	var cronExpression string
 	if scheduleEnabled && scheduleDescription != "" {
 		var err error
-		cronExpression, err = m.aiClient.CronFromDescription(context.Background(), scheduleDescription)
+		cronExpression, err = m.cronResolver.CronFromDescription(context.Background(), scheduleDescription)
 		if err != nil {
 			return model.Worker{}, fmt.Errorf("generate cron expression: %w", err)
 		}
