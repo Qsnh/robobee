@@ -45,13 +45,19 @@ func (r *DingTalkReceiver) Start(ctx context.Context, dispatch func(platform.Inb
 		if text == "" {
 			return []byte(""), nil
 		}
-		dispatch(platform.InboundMessage{
+		if data.SenderStaffId == "" {
+			log.Printf("dingtalk: skipping message with empty SenderStaffId conversationId=%s", data.ConversationId)
+			return []byte(""), nil
+		}
+		msg := platform.InboundMessage{
 			Platform:   "dingtalk",
-			SessionKey: "dingtalk:" + data.ConversationId,
+			SenderID:   data.SenderStaffId,
+			SessionKey: "dingtalk:" + data.ConversationId + ":" + data.SenderStaffId,
 			Content:    text,
 			Raw:        data,
-		})
-		log.Printf("dingtalk: dispatched message sessionKey=%s", "dingtalk:"+data.ConversationId)
+		}
+		dispatch(msg)
+		log.Printf("dingtalk: dispatched message sessionKey=%s", msg.SessionKey)
 		return []byte(""), nil
 	})
 
