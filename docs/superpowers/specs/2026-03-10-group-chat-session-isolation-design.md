@@ -17,7 +17,7 @@ Each user in a group chat gets their own independent session. Private chats are 
 
 | Scenario | Before | After |
 |---|---|---|
-| Feishu (any) | `feishu:{chatId}` | `feishu:{chatId}:{openId}` |
+| Feishu (any) | `feishu:{chatId}` | `feishu:{chatId}:{userId}` |
 | DingTalk (any) | `dingtalk:{conversationId}` | `dingtalk:{conversationId}:{senderStaffId}` |
 
 ### `InboundMessage.SenderID`
@@ -28,11 +28,11 @@ The `SenderID` field on `InboundMessage` is currently declared but never populat
 
 ### Feishu (`internal/platform/feishu/handler.go`)
 
-Use `event.Event.Sender.SenderId.OpenId` as the user identifier. OpenId is stable within an app and requires no elevated permissions.
+Use `event.Event.Sender.SenderId.UserId` as the user identifier. UserId is the enterprise-scoped user ID and is the preferred stable identifier when the app has `contact:user.employee_id:readonly` permission.
 
 Construct the `InboundMessage` as:
 ```go
-senderID := *event.Event.Sender.SenderId.OpenId
+senderID := *event.Event.Sender.SenderId.UserId
 dispatch(platform.InboundMessage{
     Platform:   "feishu",
     SenderID:   senderID,
@@ -42,7 +42,7 @@ dispatch(platform.InboundMessage{
 })
 ```
 
-**Nil-guard required before constructing the message:** `msg.ChatId`, `event.Event.Sender`, `event.Event.Sender.SenderId`, and `SenderId.OpenId` are all pointers and can be nil (e.g. app-originated or malformed events). If any is nil, return nil early without dispatching. Note: `msg.MessageType` and `msg.Content` are also dereferenced in the existing handler without nil-guards (lines 47 and 51) — these are pre-existing and out of scope for this change.
+**Nil-guard required before constructing the message:** `msg.ChatId`, `event.Event.Sender`, `event.Event.Sender.SenderId`, and `SenderId.UserId` are all pointers and can be nil (e.g. app-originated or malformed events). If any is nil, return nil early without dispatching. Note: `msg.MessageType` and `msg.Content` are also dereferenced in the existing handler without nil-guards (lines 47 and 51) — these are pre-existing and out of scope for this change.
 
 ### DingTalk (`internal/platform/dingtalk/handler.go`)
 
