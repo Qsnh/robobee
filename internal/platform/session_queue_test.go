@@ -183,7 +183,7 @@ func TestSessionQueue_ExecutorReceivesPrimaryMsgID(t *testing.T) {
 	q.enqueue("msg-second", "world", InboundMessage{})
 	time.Sleep(50 * time.Millisecond)
 
-	if capturedPrimaryID != "msg-first" {
-		t.Errorf("primaryMsgID: got %q, want %q", capturedPrimaryID, "msg-first")
+	if capturedPrimaryID != "msg-second" {
+		t.Errorf("primaryMsgID: got %q, want %q", capturedPrimaryID, "msg-second")
 	}
 }

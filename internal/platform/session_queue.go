@@ -77,8 +77,8 @@ func (q *sessionQueue) onDebounce() {
 	q.debounceIDs = nil
 	q.debounceTimer = nil
 
-	primaryID := ids[0]
-	mergedIDs := ids[1:]
+	primaryID := ids[len(ids)-1]
+	mergedIDs := ids[:len(ids)-1]
 	q.store.MarkMerged(context.Background(), primaryID, mergedIDs) //nolint:errcheck
 
 	if !q.isExecuting {
