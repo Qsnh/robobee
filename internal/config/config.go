@@ -14,16 +14,9 @@ type Config struct {
 	Database     DatabaseConfig      `yaml:"database"`
 	Workers      WorkersConfig       `yaml:"workers"`
 	Runtime      RuntimeConfig       `yaml:"runtime"`
-	AI           AIConfig            `yaml:"ai"`
 	Feishu       FeishuConfig        `yaml:"feishu"`
 	DingTalk     DingTalkConfig      `yaml:"dingtalk"`
 	MessageQueue MessageQueueConfig  `yaml:"message_queue"`
-}
-
-type AIConfig struct {
-	BaseURL string `yaml:"base_url"`
-	APIKey  string `yaml:"api_key"`
-	Model   string `yaml:"model"`
 }
 
 type FeishuConfig struct {
