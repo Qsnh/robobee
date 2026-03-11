@@ -23,7 +23,7 @@ Each user in a group chat gets their own independent session. Private chats are 
 ### `InboundMessage.SenderID`
 
 The `SenderID` field on `InboundMessage` is currently declared but never populated. Both handlers must now populate it with the user identifier used in the session key:
-- Feishu: `SenderID = *event.Event.Sender.SenderId.OpenId`
+- Feishu: `SenderID = *event.Event.Sender.SenderId.UserId`
 - DingTalk: `SenderID = data.SenderStaffId`
 
 ### Feishu (`internal/platform/feishu/handler.go`)
