@@ -28,7 +28,6 @@ func migrate(db *sql.DB) error {
 	DROP TABLE IF EXISTS platform_sessions;
 	DROP TABLE IF EXISTS feishu_sessions;
 	DROP TABLE IF EXISTS dingtalk_sessions;
-	DROP TABLE IF EXISTS mail_sessions;
 
 	CREATE TABLE IF NOT EXISTS workers (
 		id TEXT PRIMARY KEY,
