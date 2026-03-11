@@ -43,8 +43,11 @@ func main() {
 	execStore := store.NewExecutionStore(db)
 	msgStore := store.NewMessageStore(db)
 
-	// Initialize AI client
-	aiClient := ai.NewClient(cfg.AI)
+	// Initialize Claude Code client for routing and cron
+	aiClient, err := ai.NewClaudeCodeClient(cfg.Runtime.ClaudeCode.Binary)
+	if err != nil {
+		log.Fatalf("failed to create AI client: %v", err)
+	}
 
 	// Create worker manager
 	mgr := worker.NewManager(cfg, workerStore, execStore, aiClient)
