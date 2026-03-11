@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/robobee/core/internal/model"
 )
 
@@ -37,13 +38,13 @@ type ExecutionManager interface {
 // Pipeline processes inbound messages through routing, execution, and result polling.
 type Pipeline struct {
 	router   MessageRouter
-	sessions SessionStore
+	msgStore MessageStore
 	manager  ExecutionManager
 }
 
 // NewPipeline constructs a Pipeline.
-func NewPipeline(router MessageRouter, sessions SessionStore, manager ExecutionManager) *Pipeline {
-	return &Pipeline{router: router, sessions: sessions, manager: manager}
+func NewPipeline(router MessageRouter, msgStore MessageStore, manager ExecutionManager) *Pipeline {
+	return &Pipeline{router: router, msgStore: msgStore, manager: manager}
 }
 
 // IsClearCommand reports whether content is a "clear" command.
@@ -51,70 +52,26 @@ func IsClearCommand(content string) bool {
 	return strings.EqualFold(strings.TrimSpace(content), "clear")
 }
 
-// Handle processes an inbound message synchronously and returns the reply text.
+// Handle processes a clear command and returns the reply text.
+// Only clear commands are routed here; all other messages go through HandleRouted.
 func (p *Pipeline) Handle(ctx context.Context, msg InboundMessage) string {
-	if IsClearCommand(msg.Content) {
-		if err := p.sessions.Delete(msg.SessionKey); err != nil {
-			log.Printf("platform: clear session error: %v", err)
-			return errorMessage
-		}
-		return clearMessage
-	}
-
-	log.Printf("platform: routing message sessionKey=%s content=%q", msg.SessionKey, msg.Content)
-	workerID, err := p.router.Route(ctx, msg.Content)
-	if err != nil {
-		log.Printf("platform: route error: %v", err)
-		return noWorkerMsg
-	}
-	log.Printf("platform: routed to workerID=%s", workerID)
-
-	sess, err := p.sessions.Get(msg.SessionKey)
-	if err != nil {
-		log.Printf("platform: get session error: %v", err)
+	if err := p.msgStore.InsertClearSentinel(ctx, uuid.New().String(), msg.SessionKey, msg.Platform); err != nil {
+		log.Printf("platform: clear session error: %v", err)
 		return errorMessage
 	}
-	log.Printf("platform: session lookup sessionKey=%s found=%v", msg.SessionKey, sess != nil)
-
-	var exec model.WorkerExecution
-	if sess != nil && sess.LastExecutionID != "" {
-		log.Printf("platform: replying to execution execID=%s", sess.LastExecutionID)
-		exec, err = p.manager.ReplyExecution(ctx, sess.LastExecutionID, msg.Content)
-	} else {
-		log.Printf("platform: executing new worker workerID=%s", workerID)
-		exec, err = p.manager.ExecuteWorker(ctx, workerID, msg.Content)
-	}
-	if err != nil {
-		log.Printf("platform: execute error: %v", err)
-		return errorMessage
-	}
-	log.Printf("platform: execution started execID=%s sessionID=%s", exec.ID, exec.SessionID)
-
-	if err := p.sessions.Upsert(Session{
-		Key:             msg.SessionKey,
-		Platform:        msg.Platform,
-		WorkerID:        workerID,
-		SessionID:       exec.SessionID,
-		LastExecutionID: exec.ID,
-	}); err != nil {
-		log.Printf("platform: upsert session error: %v", err)
-	} else {
-		log.Printf("platform: session upsert ok sessionKey=%s execID=%s", msg.SessionKey, exec.ID)
-	}
-
-	return p.waitForResult(exec.ID)
+	return clearMessage
 }
 
 // Route resolves the best worker ID for the given message content.
-// Call this before HandleRouted to pre-route in the dispatch layer.
 func (p *Pipeline) Route(ctx context.Context, content string) (string, error) {
 	return p.router.Route(ctx, content)
 }
 
-// HandleRouted processes an already-routed message, skipping the routing step.
+// HandleRouted processes an already-routed message.
 // workerID must be the result of a prior Route call for this content.
-func (p *Pipeline) HandleRouted(ctx context.Context, msg InboundMessage, workerID string) string {
-	sess, err := p.sessions.Get(msg.SessionKey)
+// msgID is the platform_messages row ID for this message (used to record execution metadata).
+func (p *Pipeline) HandleRouted(ctx context.Context, msg InboundMessage, workerID, msgID string) string {
+	sess, err := p.msgStore.GetSession(ctx, msg.SessionKey)
 	if err != nil {
 		log.Printf("platform: get session error: %v", err)
 		return errorMessage
@@ -132,15 +89,10 @@ func (p *Pipeline) HandleRouted(ctx context.Context, msg InboundMessage, workerI
 		log.Printf("platform: execute error: %v", err)
 		return errorMessage
 	}
+	log.Printf("platform: execution started execID=%s sessionID=%s", exec.ID, exec.SessionID)
 
-	if err := p.sessions.Upsert(Session{
-		Key:             msg.SessionKey,
-		Platform:        msg.Platform,
-		WorkerID:        workerID,
-		SessionID:       exec.SessionID,
-		LastExecutionID: exec.ID,
-	}); err != nil {
-		log.Printf("platform: upsert session error: %v", err)
+	if err := p.msgStore.SetExecution(ctx, msgID, exec.ID, exec.SessionID); err != nil {
+		log.Printf("platform: set execution error: %v", err)
 	}
 
 	return p.waitForResult(exec.ID)

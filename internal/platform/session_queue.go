@@ -9,7 +9,7 @@ import (
 const mergedSeparator = "\n\n---\n\n"
 
 // Executor is called when a debounce window closes and the execution slot is free.
-type Executor func(sessionKey, workerID, content string, replyTo InboundMessage)
+type Executor func(sessionKey, workerID, content string, replyTo InboundMessage, primaryMsgID string)
 
 // sessionQueue manages debounce and execution serialization for one session_key+worker_id pair.
 type sessionQueue struct {
@@ -98,7 +98,7 @@ func (q *sessionQueue) onDebounce() {
 }
 
 func (q *sessionQueue) runExecutor(ids []string, content string, replyTo InboundMessage) {
-	q.executor(q.sessionKey, q.workerID, content, replyTo)
+	q.executor(q.sessionKey, q.workerID, content, replyTo, ids[0])
 	q.onDone(ids)
 }
 

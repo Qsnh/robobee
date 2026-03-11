@@ -48,14 +48,7 @@ type Session struct {
 	LastExecutionID string
 }
 
-// SessionStore persists session state across restarts.
-type SessionStore interface {
-	Get(key string) (*Session, error)
-	Upsert(session Session) error
-	Delete(key string) error
-}
-
-// MessageStore is the subset of store.MessageStore operations used by the queue.
+// MessageStore is the subset of store.MessageStore operations used by the queue and pipeline.
 // The concrete implementation is *store.MessageStore.
 type MessageStore interface {
 	Create(ctx context.Context, id, sessionKey, platform, content string) error
@@ -65,4 +58,7 @@ type MessageStore interface {
 	MarkMerged(ctx context.Context, primaryID string, mergedIDs []string) error
 	MarkTerminal(ctx context.Context, ids []string, status string) error
 	GetUnfinished(ctx context.Context) ([]model.PendingMessage, error)
+	GetSession(ctx context.Context, sessionKey string) (*Session, error)
+	SetExecution(ctx context.Context, msgID, executionID, sessionID string) error
+	InsertClearSentinel(ctx context.Context, id, sessionKey, platform string) error
 }
