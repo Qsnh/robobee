@@ -66,6 +66,20 @@ func migrate(db *sql.DB) error {
 	CREATE INDEX IF NOT EXISTS idx_worker_executions_worker_id ON worker_executions(worker_id);
 	CREATE INDEX IF NOT EXISTS idx_worker_executions_session_id ON worker_executions(session_id);
 	CREATE INDEX IF NOT EXISTS idx_workers_schedule ON workers(schedule_enabled) WHERE schedule_enabled = 1;
+
+	CREATE TABLE IF NOT EXISTS platform_messages (
+		id           TEXT PRIMARY KEY,
+		session_key  TEXT NOT NULL,
+		platform     TEXT NOT NULL,
+		worker_id    TEXT NOT NULL DEFAULT '',
+		content      TEXT NOT NULL,
+		status       TEXT NOT NULL DEFAULT 'received',
+		merged_into  TEXT NOT NULL DEFAULT '',
+		received_at  DATETIME NOT NULL DEFAULT (datetime('now')),
+		processed_at DATETIME
+	);
+	CREATE INDEX IF NOT EXISTS idx_platform_messages_session
+		ON platform_messages(session_key, worker_id, status);
 	`
 	_, err := db.Exec(schema)
 	return err
