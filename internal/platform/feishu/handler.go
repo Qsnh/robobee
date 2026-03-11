@@ -30,7 +30,7 @@ func NewPlatform(cfg config.FeishuConfig) platform.Platform {
 	}
 }
 
-func (f *FeishuPlatform) ID() string                              { return "feishu" }
+func (f *FeishuPlatform) ID() string                                 { return "feishu" }
 func (f *FeishuPlatform) Receiver() platform.PlatformReceiverAdapter { return f.receiver }
 func (f *FeishuPlatform) Sender() platform.PlatformSenderAdapter     { return f.sender }
 
@@ -44,6 +44,18 @@ func (r *FeishuReceiver) Start(ctx context.Context, dispatch func(platform.Inbou
 	eventHandler := dispatcher.NewEventDispatcher("", "").
 		OnP2MessageReceiveV1(func(ctx context.Context, event *larkim.P2MessageReceiveV1) error {
 			msg := event.Event.Message
+			senderOpenId := "<nil>"
+			if s := event.Event.Sender; s != nil && s.SenderId != nil {
+				senderOpenId = derefStr(s.SenderId.OpenId)
+			}
+			log.Printf("feishu: received event messageId=%s chatId=%s chatType=%s messageType=%s content=%s senderOpenId=%s",
+				derefStr(msg.MessageId),
+				derefStr(msg.ChatId),
+				derefStr(msg.ChatType),
+				derefStr(msg.MessageType),
+				derefStr(msg.Content),
+				senderOpenId,
+			)
 			if msg == nil || *msg.MessageType != "text" {
 				return nil
 			}
@@ -56,15 +68,15 @@ func (r *FeishuReceiver) Start(ctx context.Context, dispatch func(platform.Inbou
 				return nil
 			}
 			sender := event.Event.Sender
-			if sender == nil || sender.SenderId == nil || sender.SenderId.UserId == nil {
-				log.Printf("feishu: skipping message with nil sender or UserId")
+			if sender == nil || sender.SenderId == nil || sender.SenderId.OpenId == nil {
+				log.Printf("feishu: skipping message with nil sender or OpenId")
 				return nil
 			}
 			if msg.ChatId == nil {
 				log.Printf("feishu: skipping message with nil ChatId")
 				return nil
 			}
-			senderID := *sender.SenderId.UserId
+			senderID := *sender.SenderId.OpenId
 			dispatch(platform.InboundMessage{
 				Platform:   "feishu",
 				SenderID:   senderID,
@@ -131,6 +143,13 @@ func (s *FeishuSender) Send(ctx context.Context, msg platform.OutboundMessage) e
 	return nil
 }
 
-var _ platform.Platform                = (*FeishuPlatform)(nil)
+var _ platform.Platform = (*FeishuPlatform)(nil)
 var _ platform.PlatformReceiverAdapter = (*FeishuReceiver)(nil)
-var _ platform.PlatformSenderAdapter   = (*FeishuSender)(nil)
+var _ platform.PlatformSenderAdapter = (*FeishuSender)(nil)
+
+func derefStr(s *string) string {
+	if s == nil {
+		return "<nil>"
+	}
+	return *s
+}
