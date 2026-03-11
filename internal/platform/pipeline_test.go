@@ -252,3 +252,57 @@ func TestPipeline_GroupChat_TwoUsersGetIndependentSessions(t *testing.T) {
 		t.Error("userA and userB should have independent sessions")
 	}
 }
+
+func TestPipeline_Route_ReturnsWorkerID(t *testing.T) {
+	p := newPipeline(&stubRouter{workerID: "w-deploy"}, newStubSessionStore(), &stubManager{})
+	id, err := p.Route(context.Background(), "deploy the app")
+	if err != nil {
+		t.Fatalf("Route: %v", err)
+	}
+	if id != "w-deploy" {
+		t.Errorf("want w-deploy, got %s", id)
+	}
+}
+
+func TestPipeline_Route_Error(t *testing.T) {
+	p := newPipeline(&stubRouter{err: errors.New("none")}, newStubSessionStore(), &stubManager{})
+	_, err := p.Route(context.Background(), "anything")
+	if err == nil {
+		t.Fatal("expected error")
+	}
+}
+
+func TestPipeline_HandleRouted_NewSession(t *testing.T) {
+	mgr := &stubManager{exec: model.WorkerExecution{
+		ID:        "exec-1",
+		SessionID: "sess-1",
+		Status:    model.ExecStatusCompleted,
+		Result:    "deployed",
+	}}
+	p := newPipeline(&stubRouter{workerID: "w1"}, newStubSessionStore(), mgr)
+	result := p.HandleRouted(context.Background(), msg("deploy"), "w-deploy")
+	if result != "deployed" {
+		t.Errorf("want deployed, got %s", result)
+	}
+}
+
+func TestPipeline_HandleRouted_ExistingSession(t *testing.T) {
+	store := newStubSessionStore()
+	store.sessions["test:session1"] = &Session{
+		Key:             "test:session1",
+		Platform:        "test",
+		WorkerID:        "w1",
+		LastExecutionID: "prev-exec",
+	}
+	mgr := &stubManager{exec: model.WorkerExecution{
+		ID:        "exec-2",
+		SessionID: "sess-1",
+		Status:    model.ExecStatusCompleted,
+		Result:    "continued",
+	}}
+	p := newPipeline(&stubRouter{workerID: "w1"}, store, mgr)
+	result := p.HandleRouted(context.Background(), msg("continue"), "w1")
+	if result != "continued" {
+		t.Errorf("want continued, got %s", result)
+	}
+}

@@ -105,6 +105,47 @@ func (p *Pipeline) Handle(ctx context.Context, msg InboundMessage) string {
 	return p.waitForResult(exec.ID)
 }
 
+// Route resolves the best worker ID for the given message content.
+// Call this before HandleRouted to pre-route in the dispatch layer.
+func (p *Pipeline) Route(ctx context.Context, content string) (string, error) {
+	return p.router.Route(ctx, content)
+}
+
+// HandleRouted processes an already-routed message, skipping the routing step.
+// workerID must be the result of a prior Route call for this content.
+func (p *Pipeline) HandleRouted(ctx context.Context, msg InboundMessage, workerID string) string {
+	sess, err := p.sessions.Get(msg.SessionKey)
+	if err != nil {
+		log.Printf("platform: get session error: %v", err)
+		return errorMessage
+	}
+
+	var exec model.WorkerExecution
+	if sess != nil && sess.LastExecutionID != "" {
+		log.Printf("platform: replying to execution execID=%s", sess.LastExecutionID)
+		exec, err = p.manager.ReplyExecution(ctx, sess.LastExecutionID, msg.Content)
+	} else {
+		log.Printf("platform: executing worker workerID=%s", workerID)
+		exec, err = p.manager.ExecuteWorker(ctx, workerID, msg.Content)
+	}
+	if err != nil {
+		log.Printf("platform: execute error: %v", err)
+		return errorMessage
+	}
+
+	if err := p.sessions.Upsert(Session{
+		Key:             msg.SessionKey,
+		Platform:        msg.Platform,
+		WorkerID:        workerID,
+		SessionID:       exec.SessionID,
+		LastExecutionID: exec.ID,
+	}); err != nil {
+		log.Printf("platform: upsert session error: %v", err)
+	}
+
+	return p.waitForResult(exec.ID)
+}
+
 func (p *Pipeline) waitForResult(executionID string) string {
 	deadline := time.Now().Add(pollTimeout)
 	lastStatus := ""
