@@ -55,9 +55,20 @@ func (r *FeishuReceiver) Start(ctx context.Context, dispatch func(platform.Inbou
 			if text == "" {
 				return nil
 			}
+			sender := event.Event.Sender
+			if sender == nil || sender.SenderId == nil || sender.SenderId.UserId == nil {
+				log.Printf("feishu: skipping message with nil sender or UserId")
+				return nil
+			}
+			if msg.ChatId == nil {
+				log.Printf("feishu: skipping message with nil ChatId")
+				return nil
+			}
+			senderID := *sender.SenderId.UserId
 			dispatch(platform.InboundMessage{
 				Platform:   "feishu",
-				SessionKey: "feishu:" + *msg.ChatId,
+				SenderID:   senderID,
+				SessionKey: "feishu:" + *msg.ChatId + ":" + senderID,
 				Content:    text,
 				Raw:        event,
 			})
