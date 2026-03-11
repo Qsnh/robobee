@@ -42,6 +42,7 @@ func main() {
 	// Create stores
 	workerStore := store.NewWorkerStore(db)
 	execStore := store.NewExecutionStore(db)
+	msgStore := store.NewMessageStore(db)
 
 	// Initialize AI client
 	aiClient := ai.NewClient(cfg.AI)
@@ -59,7 +60,7 @@ func main() {
 	sessionStore := store.NewPlatformSessionStore(db)
 	router := botrouter.NewRouter(aiClient, workerStore)
 	pipe := platform.NewPipeline(router, sessionStore, mgr)
-	platManager := platform.NewManager(pipe)
+	platManager := platform.NewManager(pipe, msgStore, cfg.MessageQueue.DebounceWindow)
 
 	// Register enabled platforms
 	if cfg.Feishu.Enabled {

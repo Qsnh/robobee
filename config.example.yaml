@@ -2,6 +2,9 @@ server:
   port: 8080
   host: 0.0.0.0
 
+message_queue:
+  debounce_window: 3s
+
 database:
   path: ./data/robobee.db
 
