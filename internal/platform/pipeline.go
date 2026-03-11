@@ -91,6 +91,9 @@ func (p *Pipeline) HandleRouted(ctx context.Context, msg InboundMessage, workerI
 	}
 	log.Printf("platform: execution started execID=%s sessionID=%s", exec.ID, exec.SessionID)
 
+	// SetExecution failure is non-fatal: the execution has already started.
+	// If this write fails, the next message will start a new session rather
+	// than continuing this one — degraded but not incorrect.
 	if err := p.msgStore.SetExecution(ctx, msgID, exec.ID, exec.SessionID); err != nil {
 		log.Printf("platform: set execution error: %v", err)
 	}
