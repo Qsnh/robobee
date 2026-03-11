@@ -57,9 +57,8 @@ func main() {
 	}
 
 	// Build shared pipeline
-	sessionStore := store.NewPlatformSessionStore(db)
 	router := botrouter.NewRouter(aiClient, workerStore)
-	pipe := platform.NewPipeline(router, sessionStore, mgr)
+	pipe := platform.NewPipeline(router, msgStore, mgr)
 	platManager := platform.NewManager(pipe, msgStore, cfg.MessageQueue.DebounceWindow)
 
 	// Register enabled platforms

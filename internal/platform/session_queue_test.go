@@ -34,10 +34,17 @@ func (s *stubMessageStore) MarkTerminal(_ context.Context, _ []string, _ string)
 func (s *stubMessageStore) GetUnfinished(_ context.Context) ([]model.PendingMessage, error) {
 	return nil, nil
 }
+func (s *stubMessageStore) GetSession(_ context.Context, _ string) (*Session, error) {
+	return nil, nil
+}
+func (s *stubMessageStore) SetExecution(_ context.Context, _, _, _ string) error { return nil }
+func (s *stubMessageStore) InsertClearSentinel(_ context.Context, _, _, _ string) error {
+	return nil
+}
 
 func TestSessionQueue_SingleMessage_ExecutesAfterDebounce(t *testing.T) {
 	executed := make(chan string, 1)
-	executor := func(_, _, content string, _ InboundMessage) { executed <- content }
+	executor := func(_, _, content string, _ InboundMessage, _ string) { executed <- content }
 
 	q := newSessionQueue("sk1", "w1", 50*time.Millisecond, executor, &stubMessageStore{})
 	q.enqueue("msg-1", "hello", InboundMessage{SessionKey: "sk1", Content: "hello"})
@@ -54,7 +61,7 @@ func TestSessionQueue_SingleMessage_ExecutesAfterDebounce(t *testing.T) {
 
 func TestSessionQueue_TwoRapidMessages_MergedIntoOne(t *testing.T) {
 	executed := make(chan string, 1)
-	executor := func(_, _, content string, _ InboundMessage) { executed <- content }
+	executor := func(_, _, content string, _ InboundMessage, _ string) { executed <- content }
 
 	q := newSessionQueue("sk1", "w1", 100*time.Millisecond, executor, &stubMessageStore{})
 	q.enqueue("msg-1", "first", InboundMessage{SessionKey: "sk1", Content: "first"})
@@ -82,7 +89,7 @@ func TestSessionQueue_TwoRapidMessages_MergedIntoOne(t *testing.T) {
 func TestSessionQueue_RollingDebounce_TimerResetsOnNewMessage(t *testing.T) {
 	executedAt := make(chan time.Time, 1)
 	debounce := 80 * time.Millisecond
-	executor := func(_, _, _ string, _ InboundMessage) { executedAt <- time.Now() }
+	executor := func(_, _, _ string, _ InboundMessage, _ string) { executedAt <- time.Now() }
 
 	q := newSessionQueue("sk1", "w1", debounce, executor, &stubMessageStore{})
 	start := time.Now()
@@ -106,7 +113,7 @@ func TestSessionQueue_RollingDebounce_TimerResetsOnNewMessage(t *testing.T) {
 func TestSessionQueue_MessageDuringExecution_QueuedAndExecutedAfter(t *testing.T) {
 	blockExec := make(chan struct{})
 	execOrder := make(chan string, 10)
-	executor := func(_, _, content string, _ InboundMessage) {
+	executor := func(_, _, content string, _ InboundMessage, _ string) {
 		execOrder <- content
 		<-blockExec
 	}
@@ -137,7 +144,7 @@ func TestSessionQueue_MessageDuringExecution_QueuedAndExecutedAfter(t *testing.T
 
 func TestSessionQueue_Cancel_ClearsPendingWork(t *testing.T) {
 	executed := make(chan string, 1)
-	executor := func(_, _, content string, _ InboundMessage) { executed <- content }
+	executor := func(_, _, content string, _ InboundMessage, _ string) { executed <- content }
 
 	q := newSessionQueue("sk1", "w1", 200*time.Millisecond, executor, &stubMessageStore{})
 	q.enqueue("msg-1", "hello", InboundMessage{SessionKey: "sk1"})
@@ -153,7 +160,7 @@ func TestSessionQueue_Cancel_ClearsPendingWork(t *testing.T) {
 
 func TestSessionQueue_IsIdle_AfterExecution(t *testing.T) {
 	done := make(chan struct{})
-	executor := func(_, _, _ string, _ InboundMessage) { close(done) }
+	executor := func(_, _, _ string, _ InboundMessage, _ string) { close(done) }
 
 	q := newSessionQueue("sk1", "w1", 20*time.Millisecond, executor, &stubMessageStore{})
 	q.enqueue("msg-1", "hi", InboundMessage{SessionKey: "sk1"})
@@ -162,5 +169,21 @@ func TestSessionQueue_IsIdle_AfterExecution(t *testing.T) {
 	time.Sleep(20 * time.Millisecond) // allow onDone to complete
 	if !q.isIdle() {
 		t.Error("queue should be idle after execution with no pending work")
+	}
+}
+
+func TestSessionQueue_ExecutorReceivesPrimaryMsgID(t *testing.T) {
+	var capturedPrimaryID string
+	executor := func(_, _, _ string, _ InboundMessage, primaryMsgID string) {
+		capturedPrimaryID = primaryMsgID
+	}
+	store := &stubMessageStore{}
+	q := newSessionQueue("sk", "w1", 10*time.Millisecond, executor, store)
+	q.enqueue("msg-first", "hello", InboundMessage{})
+	q.enqueue("msg-second", "world", InboundMessage{})
+	time.Sleep(50 * time.Millisecond)
+
+	if capturedPrimaryID != "msg-first" {
+		t.Errorf("primaryMsgID: got %q, want %q", capturedPrimaryID, "msg-first")
 	}
 }

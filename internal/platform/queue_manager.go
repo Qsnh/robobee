@@ -54,8 +54,8 @@ func (m *QueueManager) Enqueue(msg InboundMessage, workerID, msgID string) {
 // Cleanup is deferred to a goroutine so that sessionQueue.onDone() has time to
 // clear isExecuting before we test isIdle().
 func (m *QueueManager) wrappedExecutor(key string) Executor {
-	return func(sessionKey, workerID, content string, replyTo InboundMessage) {
-		m.executor(sessionKey, workerID, content, replyTo)
+	return func(sessionKey, workerID, content string, replyTo InboundMessage, primaryMsgID string) {
+		m.executor(sessionKey, workerID, content, replyTo, primaryMsgID)
 		// onDone() runs after this function returns, so schedule cleanup asynchronously.
 		go func() {
 			// Yield to let onDone complete.

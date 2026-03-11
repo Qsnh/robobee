@@ -13,7 +13,7 @@ import (
 
 func TestQueueManager_Enqueue_CallsExecutor(t *testing.T) {
 	var called atomic.Int32
-	executor := func(_, _, _ string, _ InboundMessage) { called.Add(1) }
+	executor := func(_, _, _ string, _ InboundMessage, _ string) { called.Add(1) }
 
 	qm := NewQueueManager(&stubMessageStore{}, executor, 20*time.Millisecond)
 	qm.Enqueue(InboundMessage{SessionKey: "sk1", Platform: "test"}, "w1", "msg-1")
@@ -28,7 +28,7 @@ func TestQueueManager_DifferentSessions_RunConcurrently(t *testing.T) {
 	var mu sync.Mutex
 	started := map[string]bool{}
 	ready := make(chan struct{}, 1)
-	executor := func(sessionKey, _, _ string, _ InboundMessage) {
+	executor := func(sessionKey, _, _ string, _ InboundMessage, _ string) {
 		mu.Lock()
 		started[sessionKey] = true
 		count := len(started)
@@ -55,7 +55,7 @@ func TestQueueManager_DifferentSessions_RunConcurrently(t *testing.T) {
 
 func TestQueueManager_CancelSession_StopsPendingWork(t *testing.T) {
 	executed := make(chan string, 1)
-	executor := func(_, _, content string, _ InboundMessage) { executed <- content }
+	executor := func(_, _, content string, _ InboundMessage, _ string) { executed <- content }
 
 	qm := NewQueueManager(&stubMessageStore{}, executor, 200*time.Millisecond)
 	qm.Enqueue(InboundMessage{SessionKey: "sk1", Platform: "test"}, "w1", "msg-1")
@@ -71,7 +71,7 @@ func TestQueueManager_CancelSession_StopsPendingWork(t *testing.T) {
 
 func TestQueueManager_IdleCleanup_RemovesQueue(t *testing.T) {
 	done := make(chan struct{})
-	executor := func(_, _, _ string, _ InboundMessage) { close(done) }
+	executor := func(_, _, _ string, _ InboundMessage, _ string) { close(done) }
 
 	qm := NewQueueManager(&stubMessageStore{}, executor, 20*time.Millisecond)
 	qm.Enqueue(InboundMessage{SessionKey: "sk1", Platform: "test"}, "w1", "msg-1")
@@ -97,7 +97,7 @@ func TestQueueManager_RecoverFromDB_ExecutesPendingMessages(t *testing.T) {
 	}
 
 	executed := make(chan string, 1)
-	executor := func(_, _, content string, _ InboundMessage) { executed <- content }
+	executor := func(_, _, content string, _ InboundMessage, _ string) { executed <- content }
 
 	qm := NewQueueManager(recStore, executor, 20*time.Millisecond)
 	qm.RecoverFromDB()

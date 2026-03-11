@@ -41,11 +41,11 @@ func (m *PlatformManager) StartAll(ctx context.Context) {
 	}
 
 	// executor: called by queue when debounce fires and slot is free.
-	executor := func(sessionKey, workerID, content string, replyTo InboundMessage) {
+	executor := func(sessionKey, workerID, content string, replyTo InboundMessage, primaryMsgID string) {
 		mergedMsg := replyTo
 		mergedMsg.Content = content
 
-		result := m.pipeline.HandleRouted(context.Background(), mergedMsg, workerID)
+		result := m.pipeline.HandleRouted(context.Background(), mergedMsg, workerID, primaryMsgID)
 
 		platformID := strings.SplitN(sessionKey, ":", 2)[0]
 		if sender, ok := senderByPlatform[platformID]; ok {
