@@ -2,196 +2,123 @@ package mail
 
 import (
 	"context"
-	"errors"
 	"testing"
-	"time"
 
-	"github.com/robobee/core/internal/model"
+	"github.com/robobee/core/internal/platform"
 )
 
 // --- Stubs ---
 
-type stubSender struct {
+type stubSMTPSender struct {
 	sent []OutgoingEmail
 	err  error
 }
 
-func (s *stubSender) Send(msg OutgoingEmail) error {
+func (s *stubSMTPSender) Send(msg OutgoingEmail) error {
 	s.sent = append(s.sent, msg)
 	return s.err
 }
 
-type stubRouter struct {
-	workerID string
-	err      error
-}
+// --- MailSender tests ---
 
-func (r *stubRouter) Route(ctx context.Context, message string) (string, error) {
-	return r.workerID, r.err
-}
-
-type stubSessionStore struct {
-	sessions map[string]*stubSession
-}
-type stubSession struct {
-	workerID        string
-	sessionID       string
-	lastExecutionID string
-}
-
-func newStubSessionStore() *stubSessionStore {
-	return &stubSessionStore{sessions: make(map[string]*stubSession)}
-}
-
-func (s *stubSessionStore) GetSession(threadID string) (threadSession, error) {
-	if sess, ok := s.sessions[threadID]; ok {
-		return &mailSessionAdapter{workerID: sess.workerID, sessionID: sess.sessionID, lastExecutionID: sess.lastExecutionID}, nil
-	}
-	return nil, nil
-}
-
-func (s *stubSessionStore) UpsertSession(threadID, workerID, sessionID, lastExecutionID string) error {
-	s.sessions[threadID] = &stubSession{workerID: workerID, sessionID: sessionID, lastExecutionID: lastExecutionID}
-	return nil
-}
-
-type mailSessionAdapter struct {
-	workerID        string
-	sessionID       string
-	lastExecutionID string
-}
-
-func (a *mailSessionAdapter) GetWorkerID() string        { return a.workerID }
-func (a *mailSessionAdapter) GetSessionID() string       { return a.sessionID }
-func (a *mailSessionAdapter) GetLastExecutionID() string { return a.lastExecutionID }
-
-type stubManager struct {
-	exec model.WorkerExecution
-	err  error
-}
-
-func (m *stubManager) ExecuteWorker(ctx context.Context, workerID, input string) (model.WorkerExecution, error) {
-	return m.exec, m.err
-}
-
-func (m *stubManager) ReplyExecution(ctx context.Context, execID, input string) (model.WorkerExecution, error) {
-	return m.exec, m.err
-}
-
-func (m *stubManager) GetExecution(execID string) (model.WorkerExecution, error) {
-	return m.exec, m.err
-}
-
-// --- Tests ---
-
-// TestHandler_Ack verifies the reply helper sends to the correct address with correct body.
-func TestHandler_Ack(t *testing.T) {
-	sender := &stubSender{}
-	h := newTestHandler(
-		&stubRouter{workerID: "worker-1"},
-		newStubSessionStore(),
-		&stubManager{exec: model.WorkerExecution{Status: model.ExecStatusCompleted}},
-		sender,
-	)
+func TestMailSender_Send_PlainReply(t *testing.T) {
+	smtp := &stubSMTPSender{}
+	sender := &MailSender{smtpSender: smtp}
 
 	em := EmailMessage{
 		MessageID: "<msg1@example.com>",
 		ThreadID:  "<msg1@example.com>",
 		From:      "user@example.com",
 		Subject:   "Hello",
-		Body:      "deploy the app",
 	}
-	h.reply(em, ackMessage)
+	msg := platform.OutboundMessage{
+		Content: "⏳ 正在处理，请稍候…",
+		ReplyTo: platform.InboundMessage{Raw: em},
+	}
 
-	if len(sender.sent) != 1 {
-		t.Fatalf("expected 1 sent email (ack), got %d", len(sender.sent))
+	if err := sender.Send(context.Background(), msg); err != nil {
+		t.Fatalf("unexpected error: %v", err)
 	}
-	if sender.sent[0].BodyMD != ackMessage {
-		t.Errorf("expected ack body, got: %s", sender.sent[0].BodyMD)
+	if len(smtp.sent) != 1 {
+		t.Fatalf("expected 1 sent email, got %d", len(smtp.sent))
 	}
-	if sender.sent[0].To != "user@example.com" {
-		t.Errorf("ack sent to wrong address: %s", sender.sent[0].To)
+	got := smtp.sent[0]
+	if got.To != "user@example.com" {
+		t.Errorf("To: got %q, want %q", got.To, "user@example.com")
+	}
+	if got.Subject != "Re: Hello" {
+		t.Errorf("Subject: got %q, want %q", got.Subject, "Re: Hello")
+	}
+	if got.InReplyTo != "<msg1@example.com>" {
+		t.Errorf("InReplyTo: got %q, want %q", got.InReplyTo, "<msg1@example.com>")
+	}
+	if got.BodyMD != "⏳ 正在处理，请稍候…" {
+		t.Errorf("BodyMD: got %q", got.BodyMD)
 	}
 }
 
-// TestHandler_Process_NoWorkerFound calls process() directly (synchronous) to avoid goroutine races.
-func TestHandler_Process_NoWorkerFound(t *testing.T) {
-	sender := &stubSender{}
-	h := newTestHandler(
-		&stubRouter{err: errors.New("no workers")},
-		newStubSessionStore(),
-		&stubManager{},
-		sender,
-	)
+func TestMailSender_Send_ThreadedReply(t *testing.T) {
+	smtp := &stubSMTPSender{}
+	sender := &MailSender{smtpSender: smtp}
 
 	em := EmailMessage{
-		MessageID: "<msg1@example.com>",
-		ThreadID:  "<msg1@example.com>",
-		From:      "user@example.com",
-		Subject:   "Hello",
-		Body:      "deploy the app",
+		MessageID:  "<msg2@example.com>",
+		References: "<msg1@example.com>",
+		ThreadID:   "<msg1@example.com>",
+		From:       "user@example.com",
+		Subject:    "Re: Hello",
 	}
-	h.process(em)
+	msg := platform.OutboundMessage{
+		Content: "Done!",
+		ReplyTo: platform.InboundMessage{Raw: em},
+	}
 
-	if len(sender.sent) != 1 {
-		t.Fatalf("expected 1 sent email (error reply), got %d", len(sender.sent))
+	if err := sender.Send(context.Background(), msg); err != nil {
+		t.Fatalf("unexpected error: %v", err)
 	}
-	if sender.sent[0].BodyMD != noWorkerMsg {
-		t.Errorf("expected noWorkerMsg, got: %s", sender.sent[0].BodyMD)
+	got := smtp.sent[0]
+	if got.Subject != "Re: Hello" {
+		t.Errorf("Subject: got %q (should not double-prefix)", got.Subject)
 	}
-	if sender.sent[0].To != "user@example.com" {
-		t.Errorf("reply to wrong address: %s", sender.sent[0].To)
+	wantRefs := "<msg1@example.com> <msg2@example.com>"
+	if got.References != wantRefs {
+		t.Errorf("References: got %q, want %q", got.References, wantRefs)
 	}
 }
 
-// TestHandler_Process_CompletedExecution calls process() directly (synchronous).
-func TestHandler_Process_CompletedExecution(t *testing.T) {
-	sender := &stubSender{}
-	mgr := &stubManager{
-		exec: model.WorkerExecution{
-			ID:        "exec-1",
-			SessionID: "sess-1",
-			Status:    model.ExecStatusCompleted,
-			Result:    "## Done\nAll good.",
-		},
-	}
-	h := newTestHandler(
-		&stubRouter{workerID: "worker-1"},
-		newStubSessionStore(),
-		mgr,
-		sender,
-	)
+func TestMailSender_Send_WrongRawType(t *testing.T) {
+	smtp := &stubSMTPSender{}
+	sender := &MailSender{smtpSender: smtp}
 
-	em := EmailMessage{
-		MessageID: "<msg1@example.com>",
-		ThreadID:  "<msg1@example.com>",
-		From:      "user@example.com",
-		Subject:   "Hello",
-		Body:      "deploy the app",
+	msg := platform.OutboundMessage{
+		Content: "hello",
+		ReplyTo: platform.InboundMessage{Raw: "not-an-email"},
 	}
-	h.process(em)
 
-	if len(sender.sent) != 1 {
-		t.Fatalf("expected 1 sent email (result), got %d", len(sender.sent))
+	if err := sender.Send(context.Background(), msg); err != nil {
+		t.Fatalf("unexpected error: %v", err)
 	}
-	if sender.sent[0].BodyMD != "## Done\nAll good." {
-		t.Errorf("unexpected result body: %s", sender.sent[0].BodyMD)
-	}
-	if sender.sent[0].InReplyTo != "<msg1@example.com>" {
-		t.Errorf("InReplyTo not set: %s", sender.sent[0].InReplyTo)
-	}
-	if sender.sent[0].Subject != "Re: Hello" {
-		t.Errorf("unexpected subject: %s", sender.sent[0].Subject)
+	if len(smtp.sent) != 0 {
+		t.Errorf("expected no sends for wrong raw type, got %d", len(smtp.sent))
 	}
 }
 
-func newTestHandler(router messageRouter, sessionStore mailSessionStoreIface, mgr executionManager, sender EmailSender) *Handler {
-	return &Handler{
-		router:       router,
-		sessionStore: sessionStore,
-		manager:      mgr,
-		sender:       sender,
-		pollInterval: 0,
-		pollTimeout:  5 * time.Second,
+// --- subjectMatches tests ---
+
+func TestSubjectMatches_Empty(t *testing.T) {
+	if !subjectMatches("Anything", nil) {
+		t.Error("empty keywords should match everything")
+	}
+}
+
+func TestSubjectMatches_Hit(t *testing.T) {
+	if !subjectMatches("Deploy the app", []string{"deploy"}) {
+		t.Error("should match keyword")
+	}
+}
+
+func TestSubjectMatches_Miss(t *testing.T) {
+	if subjectMatches("Weekly newsletter", []string{"deploy", "build"}) {
+		t.Error("should not match")
 	}
 }

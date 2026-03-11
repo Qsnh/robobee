@@ -10,10 +10,12 @@ import (
 
 	"github.com/robobee/core/internal/ai"
 	"github.com/robobee/core/internal/api"
+	"github.com/robobee/core/internal/botrouter"
 	"github.com/robobee/core/internal/config"
 	"github.com/robobee/core/internal/dingtalk"
 	"github.com/robobee/core/internal/feishu"
 	"github.com/robobee/core/internal/mail"
+	"github.com/robobee/core/internal/platform"
 	"github.com/robobee/core/internal/scheduler"
 	"github.com/robobee/core/internal/store"
 	"github.com/robobee/core/internal/worker"
@@ -53,41 +55,28 @@ func main() {
 		log.Printf("scheduler start error: %v", err)
 	}
 
-	// Start Feishu bot if enabled.
-	// Known limitation: uses context.Background() so the WS client won't receive
-	// a cancellation signal on shutdown — os.Exit(0) terminates it abruptly.
+	// Build shared pipeline
+	sessionStore := store.NewPlatformSessionStore(db)
+	router := botrouter.NewRouter(aiClient, workerStore)
+	pipe := platform.NewPipeline(router, sessionStore, mgr)
+	platManager := platform.NewManager(pipe)
+
+	// Register enabled platforms
 	if cfg.Feishu.Enabled {
-		feishuSessionStore := store.NewFeishuSessionStore(db)
-		go func() {
-			if err := feishu.Start(context.Background(), cfg.Feishu, workerStore, feishuSessionStore, mgr, aiClient); err != nil {
-				log.Printf("feishu bot error: %v", err)
-			}
-		}()
+		platManager.Register(feishu.NewPlatform(cfg.Feishu))
 	}
-
-	// Start DingTalk bot if enabled.
-	// Known limitation: uses context.Background() so the stream client won't receive
-	// a cancellation signal on shutdown — os.Exit(0) terminates it abruptly.
 	if cfg.DingTalk.Enabled {
-		dingtalkSessionStore := store.NewDingTalkSessionStore(db)
-		go func() {
-			if err := dingtalk.Start(context.Background(), cfg.DingTalk, workerStore, dingtalkSessionStore, mgr, aiClient); err != nil {
-				log.Printf("dingtalk bot error: %v", err)
-			}
-		}()
+		platManager.Register(dingtalk.NewPlatform(cfg.DingTalk))
+	}
+	if cfg.Mail.Enabled {
+		platManager.Register(mail.NewPlatform(cfg.Mail))
 	}
 
-	// Start Mail bot if enabled.
-	// Known limitation: uses context.Background() so the IMAP poller won't receive
-	// a cancellation signal on shutdown — os.Exit(0) terminates it abruptly.
-	if cfg.Mail.Enabled {
-		mailSessionStore := store.NewMailSessionStore(db)
-		go func() {
-			if err := mail.Start(context.Background(), cfg.Mail, workerStore, mailSessionStore, mgr, aiClient); err != nil {
-				log.Printf("mail bot error: %v", err)
-			}
-		}()
-	}
+	// Graceful shutdown context
+	ctx, cancel := context.WithCancel(context.Background())
+
+	// Start all platforms
+	go platManager.StartAll(ctx)
 
 	// Start HTTP API
 	srv := api.NewServer(workerStore, execStore, mgr, sched)
@@ -98,6 +87,7 @@ func main() {
 	go func() {
 		<-quit
 		log.Println("Shutting down...")
+		cancel()
 		sched.Stop()
 		db.Close()
 		os.Exit(0)

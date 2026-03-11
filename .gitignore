@@ -4,3 +4,4 @@ data/workers/
 /server
 .worktrees/
 config.yaml
+openclaw/

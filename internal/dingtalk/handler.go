@@ -4,136 +4,77 @@ import (
 	"context"
 	"log"
 	"strings"
-	"time"
 
 	"github.com/open-dingtalk/dingtalk-stream-sdk-go/chatbot"
+	"github.com/open-dingtalk/dingtalk-stream-sdk-go/client"
 
-	"github.com/robobee/core/internal/botrouter"
-	"github.com/robobee/core/internal/model"
-	"github.com/robobee/core/internal/store"
-	"github.com/robobee/core/internal/worker"
+	"github.com/robobee/core/internal/config"
+	"github.com/robobee/core/internal/platform"
 )
 
-const (
-	pollInterval = 2 * time.Second
-	pollTimeout  = 30 * time.Minute
-	ackMessage   = "⏳ 正在处理，请稍候…"
-	errorMessage = "❌ 处理失败，请稍后重试"
-	noWorkerMsg  = "❌ 没有找到合适的 Worker，请换个描述试试"
-	clearMessage = "✅ 上下文已重置"
-)
-
-type Handler struct {
-	router       *botrouter.Router
-	sessionStore *store.DingTalkSessionStore
-	manager      *worker.Manager
+// DingTalkPlatform implements platform.Platform for DingTalk.
+type DingTalkPlatform struct {
+	receiver *DingTalkReceiver
+	sender   *DingTalkSender
 }
 
-func NewHandler(
-	router *botrouter.Router,
-	sessionStore *store.DingTalkSessionStore,
-	manager *worker.Manager,
-) *Handler {
-	return &Handler{
-		router:       router,
-		sessionStore: sessionStore,
-		manager:      manager,
+// NewPlatform constructs a DingTalkPlatform from configuration.
+func NewPlatform(cfg config.DingTalkConfig) platform.Platform {
+	return &DingTalkPlatform{
+		receiver: &DingTalkReceiver{cfg: cfg},
+		sender:   &DingTalkSender{},
 	}
 }
 
-func (h *Handler) OnMessage(ctx context.Context, data *chatbot.BotCallbackDataModel) ([]byte, error) {
-	text := strings.TrimSpace(data.Text.Content)
-	if text == "" {
-		return []byte(""), nil
-	}
+func (d *DingTalkPlatform) ID() string                                 { return "dingtalk" }
+func (d *DingTalkPlatform) Receiver() platform.PlatformReceiverAdapter { return d.receiver }
+func (d *DingTalkPlatform) Sender() platform.PlatformSenderAdapter     { return d.sender }
 
-	chatID := data.ConversationId
-	sessionWebhook := data.SessionWebhook
+// DingTalkReceiver connects to DingTalk via the stream SDK and dispatches inbound messages.
+type DingTalkReceiver struct {
+	cfg config.DingTalkConfig
+}
 
-	if strings.EqualFold(text, "clear") {
-		if err := h.sessionStore.DeleteSession(chatID); err != nil {
-			log.Printf("dingtalk: delete session error: %v", err)
-			h.sendMessage(ctx, sessionWebhook, errorMessage)
+func (r *DingTalkReceiver) Start(ctx context.Context, dispatch func(platform.InboundMessage)) error {
+	cli := client.NewStreamClient(
+		client.WithAppCredential(client.NewAppCredentialConfig(r.cfg.ClientID, r.cfg.ClientSecret)),
+	)
+	cli.RegisterChatBotCallbackRouter(func(ctx context.Context, data *chatbot.BotCallbackDataModel) ([]byte, error) {
+		text := strings.TrimSpace(data.Text.Content)
+		if text == "" {
 			return []byte(""), nil
 		}
-		h.sendMessage(ctx, sessionWebhook, clearMessage)
+		dispatch(platform.InboundMessage{
+			Platform:   "dingtalk",
+			SessionKey: "dingtalk:" + data.ConversationId,
+			Content:    text,
+			Raw:        data,
+		})
 		return []byte(""), nil
-	}
+	})
 
-	// Acknowledge immediately.
-	h.sendMessage(ctx, sessionWebhook, ackMessage)
-
-	// Process asynchronously.
-	// Known limitation: uses context.Background() — goroutine outlives server shutdown.
-	go h.process(chatID, sessionWebhook, text)
-	return []byte(""), nil
+	log.Println("DingTalk bot starting...")
+	return cli.Start(ctx)
 }
 
-func (h *Handler) process(chatID, sessionWebhook, text string) {
-	ctx := context.Background()
-
-	workerID, err := h.router.Route(ctx, text)
-	if err != nil {
-		log.Printf("dingtalk: route error: %v", err)
-		h.sendMessage(ctx, sessionWebhook, noWorkerMsg)
-		return
-	}
-
-	sess, err := h.sessionStore.GetSession(chatID)
-	if err != nil {
-		log.Printf("dingtalk: get session error: %v", err)
-		h.sendMessage(ctx, sessionWebhook, errorMessage)
-		return
-	}
-
-	var exec model.WorkerExecution
-	if sess != nil && sess.LastExecutionID != "" {
-		exec, err = h.manager.ReplyExecution(ctx, sess.LastExecutionID, text)
-	} else {
-		exec, err = h.manager.ExecuteWorker(ctx, workerID, text)
-	}
-	if err != nil {
-		log.Printf("dingtalk: execute error: %v", err)
-		h.sendMessage(ctx, sessionWebhook, errorMessage)
-		return
-	}
-
-	if err := h.sessionStore.UpsertSession(chatID, workerID, exec.SessionID, exec.ID); err != nil {
-		log.Printf("dingtalk: upsert session error: %v", err)
-	}
-
-	result := h.waitForResult(exec.ID)
-	h.sendMessage(ctx, sessionWebhook, result)
-}
-
-// waitForResult polls execution status every 2s until completed/failed or 30m timeout.
-func (h *Handler) waitForResult(executionID string) string {
-	deadline := time.Now().Add(pollTimeout)
-	for time.Now().Before(deadline) {
-		exec, err := h.manager.GetExecution(executionID)
-		if err != nil {
-			log.Printf("dingtalk: poll execution error: %v", err)
-			return errorMessage
-		}
-		switch exec.Status {
-		case model.ExecStatusCompleted:
-			if exec.Result != "" {
-				return exec.Result
-			}
-			return "✅ 任务已完成"
-		case model.ExecStatusFailed:
-			return "❌ 任务执行失败: " + exec.Result
-		}
-		time.Sleep(pollInterval)
-	}
-	return "⏰ 任务超时，请稍后通过 Web 界面查看结果"
-}
+// DingTalkSender sends messages via the DingTalk chatbot replier.
+type DingTalkSender struct{}
 
 const markdownTitle = "RoboBee"
 
-func (h *Handler) sendMessage(ctx context.Context, sessionWebhook, text string) {
+func (s *DingTalkSender) Send(ctx context.Context, msg platform.OutboundMessage) error {
+	data, ok := msg.ReplyTo.Raw.(*chatbot.BotCallbackDataModel)
+	if !ok {
+		log.Printf("dingtalk: sender: unexpected raw type %T", msg.ReplyTo.Raw)
+		return nil
+	}
 	replier := chatbot.NewChatbotReplier()
-	if err := replier.SimpleReplyMarkdown(ctx, sessionWebhook, []byte(markdownTitle), []byte(text)); err != nil {
+	if err := replier.SimpleReplyMarkdown(ctx, data.SessionWebhook, []byte(markdownTitle), []byte(msg.Content)); err != nil {
 		log.Printf("dingtalk: send message error: %v", err)
 	}
+	return nil
 }
+
+var _ platform.Platform                = (*DingTalkPlatform)(nil)
+var _ platform.PlatformReceiverAdapter = (*DingTalkReceiver)(nil)
+var _ platform.PlatformSenderAdapter   = (*DingTalkSender)(nil)

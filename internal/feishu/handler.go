@@ -4,150 +4,95 @@ import (
 	"context"
 	"encoding/json"
 	"log"
-	"strings"
-	"time"
 
 	lark "github.com/larksuite/oapi-sdk-go/v3"
+	larkcore "github.com/larksuite/oapi-sdk-go/v3/core"
+	"github.com/larksuite/oapi-sdk-go/v3/event/dispatcher"
 	larkim "github.com/larksuite/oapi-sdk-go/v3/service/im/v1"
+	larkws "github.com/larksuite/oapi-sdk-go/v3/ws"
 
-	"github.com/robobee/core/internal/botrouter"
-	"github.com/robobee/core/internal/model"
-	"github.com/robobee/core/internal/store"
-	"github.com/robobee/core/internal/worker"
+	"github.com/robobee/core/internal/config"
+	"github.com/robobee/core/internal/platform"
 )
 
-const (
-	pollInterval = 2 * time.Second
-	pollTimeout  = 30 * time.Minute
-	ackMessage   = "⏳ 正在处理，请稍候…"
-	errorMessage = "❌ 处理失败，请稍后重试"
-	noWorkerMsg  = "❌ 没有找到合适的 Worker，请换个描述试试"
-	clearMessage = "✅ 上下文已重置"
-)
-
-type Handler struct {
-	larkClient   *lark.Client
-	router       *botrouter.Router
-	sessionStore *store.FeishuSessionStore
-	manager      *worker.Manager
+// FeishuPlatform implements platform.Platform for Feishu/Lark.
+type FeishuPlatform struct {
+	receiver *FeishuReceiver
+	sender   *FeishuSender
 }
 
-func NewHandler(
-	larkClient *lark.Client,
-	router *botrouter.Router,
-	sessionStore *store.FeishuSessionStore,
-	manager *worker.Manager,
-) *Handler {
-	return &Handler{
-		larkClient:   larkClient,
-		router:       router,
-		sessionStore: sessionStore,
-		manager:      manager,
+// NewPlatform constructs a FeishuPlatform from configuration.
+func NewPlatform(cfg config.FeishuConfig) platform.Platform {
+	larkClient := lark.NewClient(cfg.AppID, cfg.AppSecret)
+	return &FeishuPlatform{
+		receiver: &FeishuReceiver{larkClient: larkClient, cfg: cfg},
+		sender:   &FeishuSender{larkClient: larkClient},
 	}
 }
 
-func (h *Handler) OnMessage(ctx context.Context, event *larkim.P2MessageReceiveV1) error {
-	msg := event.Event.Message
-	if msg == nil || *msg.MessageType != "text" {
-		return nil
-	}
+func (f *FeishuPlatform) ID() string                              { return "feishu" }
+func (f *FeishuPlatform) Receiver() platform.PlatformReceiverAdapter { return f.receiver }
+func (f *FeishuPlatform) Sender() platform.PlatformSenderAdapter     { return f.sender }
 
-	var content map[string]string
-	if err := json.Unmarshal([]byte(*msg.Content), &content); err != nil {
-		return nil
-	}
-	text := content["text"]
-	if text == "" {
-		return nil
-	}
-
-	chatID := *msg.ChatId
-	chatType := *msg.ChatType
-
-	if strings.EqualFold(strings.TrimSpace(text), "clear") {
-		if err := h.sessionStore.DeleteSession(chatID); err != nil {
-			log.Printf("feishu: delete session error: %v", err)
-			h.sendMessage(ctx, chatID, chatType, *msg.MessageId, errorMessage)
-			return nil
-		}
-		h.sendMessage(ctx, chatID, chatType, *msg.MessageId, clearMessage)
-		return nil
-	}
-
-	// Acknowledge immediately
-	h.sendMessage(ctx, chatID, chatType, *msg.MessageId, ackMessage)
-
-	// Process asynchronously.
-	// Known limitation: uses context.Background() — goroutine outlives server shutdown.
-	go h.process(chatID, chatType, *msg.MessageId, text)
-	return nil
+// FeishuReceiver connects to Feishu via WebSocket and dispatches inbound messages.
+type FeishuReceiver struct {
+	larkClient *lark.Client
+	cfg        config.FeishuConfig
 }
 
-func (h *Handler) process(chatID, chatType, messageID, text string) {
-	ctx := context.Background()
-
-	workerID, err := h.router.Route(ctx, text)
-	if err != nil {
-		log.Printf("feishu: route error: %v", err)
-		h.sendMessage(ctx, chatID, chatType, messageID, noWorkerMsg)
-		return
-	}
-
-	sess, err := h.sessionStore.GetSession(chatID)
-	if err != nil {
-		log.Printf("feishu: get session error: %v", err)
-		h.sendMessage(ctx, chatID, chatType, messageID, errorMessage)
-		return
-	}
-
-	var exec model.WorkerExecution
-	if sess != nil && sess.LastExecutionID != "" {
-		exec, err = h.manager.ReplyExecution(ctx, sess.LastExecutionID, text)
-	} else {
-		exec, err = h.manager.ExecuteWorker(ctx, workerID, text)
-	}
-	if err != nil {
-		log.Printf("feishu: execute error: %v", err)
-		h.sendMessage(ctx, chatID, chatType, messageID, errorMessage)
-		return
-	}
-
-	if err := h.sessionStore.UpsertSession(chatID, workerID, exec.SessionID, exec.ID); err != nil {
-		log.Printf("feishu: upsert session error: %v", err)
-	}
-
-	result := h.waitForResult(exec.ID)
-	h.sendMessage(ctx, chatID, chatType, messageID, result)
-}
-
-// waitForResult polls execution status every 2s until completed/failed or 30m timeout.
-func (h *Handler) waitForResult(executionID string) string {
-	deadline := time.Now().Add(pollTimeout)
-	for time.Now().Before(deadline) {
-		exec, err := h.manager.GetExecution(executionID)
-		if err != nil {
-			log.Printf("feishu: poll execution error: %v", err)
-			return errorMessage
-		}
-		switch exec.Status {
-		case model.ExecStatusCompleted:
-			if exec.Result != "" {
-				return exec.Result
+func (r *FeishuReceiver) Start(ctx context.Context, dispatch func(platform.InboundMessage)) error {
+	eventHandler := dispatcher.NewEventDispatcher("", "").
+		OnP2MessageReceiveV1(func(ctx context.Context, event *larkim.P2MessageReceiveV1) error {
+			msg := event.Event.Message
+			if msg == nil || *msg.MessageType != "text" {
+				return nil
 			}
-			return "✅ 任务已完成"
-		case model.ExecStatusFailed:
-			return "❌ 任务执行失败: " + exec.Result
-		}
-		time.Sleep(pollInterval)
-	}
-	return "⏰ 任务超时，请稍后通过 Web 界面查看结果"
+			var content map[string]string
+			if err := json.Unmarshal([]byte(*msg.Content), &content); err != nil {
+				return nil
+			}
+			text := content["text"]
+			if text == "" {
+				return nil
+			}
+			dispatch(platform.InboundMessage{
+				Platform:   "feishu",
+				SessionKey: "feishu:" + *msg.ChatId,
+				Content:    text,
+				Raw:        event,
+			})
+			return nil
+		})
+
+	wsClient := larkws.NewClient(r.cfg.AppID, r.cfg.AppSecret,
+		larkws.WithEventHandler(eventHandler),
+		larkws.WithLogLevel(larkcore.LogLevelInfo),
+	)
+
+	log.Println("Feishu bot starting...")
+	return wsClient.Start(ctx)
 }
 
-func (h *Handler) sendMessage(ctx context.Context, chatID, chatType, replyToMessageID, text string) {
-	content, _ := json.Marshal(map[string]string{"text": text})
+// FeishuSender sends messages via the Feishu IM API.
+type FeishuSender struct {
+	larkClient *lark.Client
+}
+
+func (s *FeishuSender) Send(ctx context.Context, msg platform.OutboundMessage) error {
+	event, ok := msg.ReplyTo.Raw.(*larkim.P2MessageReceiveV1)
+	if !ok {
+		log.Printf("feishu: sender: unexpected raw type %T", msg.ReplyTo.Raw)
+		return nil
+	}
+	imMsg := event.Event.Message
+	chatID := *imMsg.ChatId
+	chatType := *imMsg.ChatType
+	messageID := *imMsg.MessageId
+
+	content, _ := json.Marshal(map[string]string{"text": msg.Content})
 
 	if chatType == "p2p" {
-		resp, err := h.larkClient.Im.Message.Create(ctx,
+		resp, err := s.larkClient.Im.Message.Create(ctx,
 			larkim.NewCreateMessageReqBuilder().
 				ReceiveIdType(larkim.ReceiveIdTypeChatId).
 				Body(larkim.NewCreateMessageReqBodyBuilder().
@@ -160,9 +105,9 @@ func (h *Handler) sendMessage(ctx context.Context, chatID, chatType, replyToMess
 			log.Printf("feishu: send message error: %v, resp: %+v", err, resp)
 		}
 	} else {
-		resp, err := h.larkClient.Im.Message.Reply(ctx,
+		resp, err := s.larkClient.Im.Message.Reply(ctx,
 			larkim.NewReplyMessageReqBuilder().
-				MessageId(replyToMessageID).
+				MessageId(messageID).
 				Body(larkim.NewReplyMessageReqBodyBuilder().
 					MsgType(larkim.MsgTypeText).
 					Content(string(content)).
@@ -172,4 +117,9 @@ func (h *Handler) sendMessage(ctx context.Context, chatID, chatType, replyToMess
 			log.Printf("feishu: reply message error: %v, resp: %+v", err, resp)
 		}
 	}
+	return nil
 }
+
+var _ platform.Platform                = (*FeishuPlatform)(nil)
+var _ platform.PlatformReceiverAdapter = (*FeishuReceiver)(nil)
+var _ platform.PlatformSenderAdapter   = (*FeishuSender)(nil)
