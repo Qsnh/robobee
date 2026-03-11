@@ -99,13 +99,6 @@ func (c *Client) CronFromDescription(ctx context.Context, description string) (s
 	return cron, nil
 }
 
-// WorkerSummary is used for AI routing decisions.
-type WorkerSummary struct {
-	ID          string
-	Name        string
-	Description string
-}
-
 // RouteToWorker uses AI to select the most appropriate worker for a message.
 // Returns an error if the AI response does not match any worker ID in the list.
 func (c *Client) RouteToWorker(ctx context.Context, message string, workers []WorkerSummary) (string, error) {
