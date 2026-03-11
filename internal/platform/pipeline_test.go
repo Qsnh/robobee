@@ -211,3 +211,44 @@ func TestPipeline_ExecuteWorkerError(t *testing.T) {
 		t.Errorf("want %q, got %q", errorMessage, result)
 	}
 }
+
+func TestPipeline_GroupChat_TwoUsersGetIndependentSessions(t *testing.T) {
+	store := newStubSessionStore()
+	mgr := &stubManager{exec: model.WorkerExecution{
+		ID:        "exec-1",
+		SessionID: "sess-1",
+		Status:    model.ExecStatusCompleted,
+		Result:    "done",
+	}}
+	p := newPipeline(&stubRouter{workerID: "w1"}, store, mgr)
+
+	// Simulate two different users in the same group chat
+	msgUserA := InboundMessage{
+		Platform:   "feishu",
+		SenderID:   "userA",
+		SessionKey: "feishu:chat123:userA",
+		Content:    "deploy the app",
+	}
+	msgUserB := InboundMessage{
+		Platform:   "feishu",
+		SenderID:   "userB",
+		SessionKey: "feishu:chat123:userB",
+		Content:    "run tests",
+	}
+
+	p.Handle(context.Background(), msgUserA)
+	p.Handle(context.Background(), msgUserB)
+
+	sessA := store.sessions["feishu:chat123:userA"]
+	sessB := store.sessions["feishu:chat123:userB"]
+
+	if sessA == nil {
+		t.Fatal("session for userA should exist")
+	}
+	if sessB == nil {
+		t.Fatal("session for userB should exist")
+	}
+	if sessA == sessB {
+		t.Error("userA and userB should have independent sessions")
+	}
+}
