@@ -71,6 +71,7 @@ func (r *MailReceiver) Start(ctx context.Context, dispatch func(platform.Inbound
 					SenderID:   em.From,
 					SessionKey: "mail:" + em.ThreadID,
 					Content:    em.Body,
+					RawContent: em.Body,
 					Raw:        em,
 				})
 			}

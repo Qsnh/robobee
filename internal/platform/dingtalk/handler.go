@@ -2,6 +2,7 @@ package dingtalk
 
 import (
 	"context"
+	"encoding/json"
 	"log"
 	"strings"
 
@@ -49,11 +50,19 @@ func (r *DingTalkReceiver) Start(ctx context.Context, dispatch func(platform.Inb
 			log.Printf("dingtalk: skipping message with empty SenderStaffId conversationId=%s", data.ConversationId)
 			return []byte(""), nil
 		}
+		rawBytes, err := json.Marshal(data)
+		rawContent := data.Text.Content
+		if err != nil {
+			log.Printf("dingtalk: failed to marshal raw callback data: %v", err)
+		} else {
+			rawContent = string(rawBytes)
+		}
 		msg := platform.InboundMessage{
 			Platform:   "dingtalk",
 			SenderID:   data.SenderStaffId,
 			SessionKey: "dingtalk:" + data.ConversationId + ":" + data.SenderStaffId,
 			Content:    text,
+			RawContent: rawContent,
 			Raw:        data,
 		}
 		dispatch(msg)

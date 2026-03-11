@@ -98,7 +98,7 @@ func (m *PlatformManager) StartAll(ctx context.Context) {
 
 				// Record message to DB (best-effort; failure does not block processing).
 				msgID := uuid.New().String()
-				if err := m.msgStore.Create(context.Background(), msgID, msg.SessionKey, msg.Platform, msg.Content); err != nil {
+				if err := m.msgStore.Create(context.Background(), msgID, msg.SessionKey, msg.Platform, msg.Content, msg.RawContent); err != nil {
 					log.Printf("platform[%s]: record message error: %v", p.ID(), err)
 				}
 

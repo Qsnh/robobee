@@ -82,6 +82,7 @@ func (r *FeishuReceiver) Start(ctx context.Context, dispatch func(platform.Inbou
 				SenderID:   senderID,
 				SessionKey: "feishu:" + *msg.ChatId + ":" + senderID,
 				Content:    text,
+				RawContent: *msg.Content,
 				Raw:        event,
 			})
 			return nil
