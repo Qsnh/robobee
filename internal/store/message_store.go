@@ -21,10 +21,10 @@ func NewMessageStore(db *sql.DB) *MessageStore {
 }
 
 // Create inserts a new message record with status "received".
-func (s *MessageStore) Create(ctx context.Context, id, sessionKey, platform, content string) error {
+func (s *MessageStore) Create(ctx context.Context, id, sessionKey, platform, content, raw string) error {
 	_, err := s.db.ExecContext(ctx,
-		`INSERT INTO platform_messages (id, session_key, platform, content) VALUES (?, ?, ?, ?)`,
-		id, sessionKey, platform, content,
+		`INSERT INTO platform_messages (id, session_key, platform, content, raw) VALUES (?, ?, ?, ?, ?)`,
+		id, sessionKey, platform, content, raw,
 	)
 	return err
 }

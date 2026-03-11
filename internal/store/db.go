@@ -64,6 +64,7 @@ func migrate(db *sql.DB) error {
 		platform     TEXT NOT NULL,
 		worker_id    TEXT NOT NULL DEFAULT '',
 		content      TEXT NOT NULL,
+		raw          TEXT NOT NULL DEFAULT '',
 		status       TEXT NOT NULL DEFAULT 'received',
 		merged_into  TEXT NOT NULL DEFAULT '',
 		execution_id TEXT NOT NULL DEFAULT '',
@@ -89,6 +90,7 @@ func migrate(db *sql.DB) error {
 	for _, stmt := range []string{
 		"ALTER TABLE platform_messages ADD COLUMN execution_id TEXT NOT NULL DEFAULT ''",
 		"ALTER TABLE platform_messages ADD COLUMN session_id  TEXT NOT NULL DEFAULT ''",
+		"ALTER TABLE platform_messages ADD COLUMN raw         TEXT NOT NULL DEFAULT ''",
 	} {
 		db.Exec(stmt) // ignore "duplicate column name" on re-runs
 	}
