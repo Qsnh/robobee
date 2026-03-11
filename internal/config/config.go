@@ -10,14 +10,15 @@ import (
 )
 
 type Config struct {
-	Server   ServerConfig   `yaml:"server"`
-	Database DatabaseConfig `yaml:"database"`
-	Workers  WorkersConfig  `yaml:"workers"`
-	Runtime  RuntimeConfig  `yaml:"runtime"`
-	AI       AIConfig       `yaml:"ai"`
-	Feishu   FeishuConfig   `yaml:"feishu"`
-	DingTalk DingTalkConfig `yaml:"dingtalk"`
-	Mail     MailConfig     `yaml:"mail"`
+	Server       ServerConfig        `yaml:"server"`
+	Database     DatabaseConfig      `yaml:"database"`
+	Workers      WorkersConfig       `yaml:"workers"`
+	Runtime      RuntimeConfig       `yaml:"runtime"`
+	AI           AIConfig            `yaml:"ai"`
+	Feishu       FeishuConfig        `yaml:"feishu"`
+	DingTalk     DingTalkConfig      `yaml:"dingtalk"`
+	Mail         MailConfig          `yaml:"mail"`
+	MessageQueue MessageQueueConfig  `yaml:"message_queue"`
 }
 
 type AIConfig struct {
@@ -71,6 +72,10 @@ type RuntimeEntry struct {
 	Timeout time.Duration `yaml:"timeout"`
 }
 
+type MessageQueueConfig struct {
+	DebounceWindow time.Duration `yaml:"debounce_window"`
+}
+
 func Load(path string) (Config, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -93,6 +98,9 @@ func applyDefaults(cfg *Config) error {
 			return fmt.Errorf("get home dir: %w", err)
 		}
 		cfg.Workers.BaseDir = filepath.Join(home, ".robobee", "worker")
+	}
+	if cfg.MessageQueue.DebounceWindow == 0 {
+		cfg.MessageQueue.DebounceWindow = 3 * time.Second
 	}
 	return nil
 }
