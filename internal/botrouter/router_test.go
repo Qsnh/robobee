@@ -2,21 +2,25 @@ package botrouter_test
 
 import (
 	"context"
-	"encoding/json"
-	"net/http"
-	"net/http/httptest"
 	"testing"
 
 	"github.com/robobee/core/internal/ai"
 	"github.com/robobee/core/internal/botrouter"
-	"github.com/robobee/core/internal/config"
 	"github.com/robobee/core/internal/model"
 	"github.com/robobee/core/internal/store"
 )
 
-func newRouterWithWorkers(t *testing.T, aiHandler http.HandlerFunc, workers []model.Worker) *botrouter.Router {
-	t.Helper()
+// mockRouter is a test double for ai.WorkerRouter.
+type mockRouter struct {
+	routeFunc func(message string, workers []ai.WorkerSummary) (string, error)
+}
 
+func (m *mockRouter) RouteToWorker(_ context.Context, message string, workers []ai.WorkerSummary) (string, error) {
+	return m.routeFunc(message, workers)
+}
+
+func newTestRouter(t *testing.T, mock ai.WorkerRouter, workers []model.Worker) *botrouter.Router {
+	t.Helper()
 	db, err := store.InitDB(":memory:")
 	if err != nil {
 		t.Fatalf("init db: %v", err)
@@ -29,12 +33,7 @@ func newRouterWithWorkers(t *testing.T, aiHandler http.HandlerFunc, workers []mo
 			t.Fatalf("create worker: %v", err)
 		}
 	}
-
-	srv := httptest.NewServer(aiHandler)
-	t.Cleanup(srv.Close)
-	aiClient := ai.NewClient(config.AIConfig{BaseURL: srv.URL, APIKey: "test", Model: "test"})
-
-	return botrouter.NewRouter(aiClient, ws)
+	return botrouter.NewRouter(mock, ws)
 }
 
 func TestRouter_Route_PicksCorrectWorker(t *testing.T) {
@@ -43,14 +42,12 @@ func TestRouter_Route_PicksCorrectWorker(t *testing.T) {
 		{ID: "w2", Name: "nova", Description: "code reviewer", WorkDir: t.TempDir()},
 	}
 
-	router := newRouterWithWorkers(t, func(w http.ResponseWriter, r *http.Request) {
-		resp := map[string]any{
-			"choices": []map[string]any{
-				{"message": map[string]string{"content": "w1"}},
-			},
-		}
-		json.NewEncoder(w).Encode(resp)
-	}, workers)
+	mock := &mockRouter{
+		routeFunc: func(_ string, _ []ai.WorkerSummary) (string, error) {
+			return "w1", nil
+		},
+	}
+	router := newTestRouter(t, mock, workers)
 
 	id, err := router.Route(context.Background(), "analyze sales data")
 	if err != nil {
@@ -62,7 +59,12 @@ func TestRouter_Route_PicksCorrectWorker(t *testing.T) {
 }
 
 func TestRouter_Route_NoWorkers_ReturnsError(t *testing.T) {
-	router := newRouterWithWorkers(t, func(w http.ResponseWriter, r *http.Request) {}, []model.Worker{})
+	mock := &mockRouter{
+		routeFunc: func(_ string, _ []ai.WorkerSummary) (string, error) {
+			return "", nil
+		},
+	}
+	router := newTestRouter(t, mock, []model.Worker{})
 
 	_, err := router.Route(context.Background(), "some message")
 	if err == nil {

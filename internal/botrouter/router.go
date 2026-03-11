@@ -9,16 +9,15 @@ import (
 )
 
 type Router struct {
-	aiClient    *ai.Client
+	router      ai.WorkerRouter
 	workerStore *store.WorkerStore
 }
 
-func NewRouter(aiClient *ai.Client, workerStore *store.WorkerStore) *Router {
-	return &Router{aiClient: aiClient, workerStore: workerStore}
+func NewRouter(router ai.WorkerRouter, workerStore *store.WorkerStore) *Router {
+	return &Router{router: router, workerStore: workerStore}
 }
 
 // Route returns the worker ID best suited to handle the message.
-// Uses WorkerStore.List() to fetch all workers live.
 func (r *Router) Route(ctx context.Context, message string) (string, error) {
 	workers, err := r.workerStore.List()
 	if err != nil {
@@ -33,5 +32,5 @@ func (r *Router) Route(ctx context.Context, message string) (string, error) {
 		summaries[i] = ai.WorkerSummary{ID: w.ID, Name: w.Name, Description: w.Description}
 	}
 
-	return r.aiClient.RouteToWorker(ctx, message, summaries)
+	return r.router.RouteToWorker(ctx, message, summaries)
 }
