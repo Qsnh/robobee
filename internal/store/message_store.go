@@ -137,6 +137,7 @@ func (s *MessageStore) GetSession(ctx context.Context, sessionKey string) (*plat
 		SELECT status, worker_id, execution_id, session_id, platform
 		FROM platform_messages
 		WHERE session_key = ?
+		  AND (execution_id != '' OR status = 'clear')
 		ORDER BY received_at DESC, rowid DESC
 		LIMIT 1`, sessionKey)
 

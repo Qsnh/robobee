@@ -69,6 +69,20 @@ func (m *QueueManager) wrappedExecutor(key string) Executor {
 	}
 }
 
+// IsActiveSession reports whether there is an active (debouncing, executing, or
+// pending) queue for the given session key.
+func (m *QueueManager) IsActiveSession(sessionKey string) bool {
+	prefix := sessionKey + "|"
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	for key := range m.queues {
+		if strings.HasPrefix(key, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
 // CancelSession stops and clears all queues for the given session key.
 func (m *QueueManager) CancelSession(sessionKey string) {
 	prefix := sessionKey + "|"

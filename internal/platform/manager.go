@@ -83,15 +83,17 @@ func (m *PlatformManager) StartAll(ctx context.Context) {
 					return
 				}
 
-				// Send ACK immediately.
-				if err := sender.Send(context.Background(), OutboundMessage{
-					SessionKey: msg.SessionKey,
-					Content:    AckMessage,
-					ReplyTo:    msg,
-				}); err != nil {
-					log.Printf("platform[%s]: ack error: %v", p.ID(), err)
-				} else {
-					log.Printf("platform[%s]: ack sent sessionKey=%s", p.ID(), msg.SessionKey)
+				// Send ACK only for the first message in a new debounce batch.
+				if !m.queueMgr.IsActiveSession(msg.SessionKey) {
+					if err := sender.Send(context.Background(), OutboundMessage{
+						SessionKey: msg.SessionKey,
+						Content:    AckMessage,
+						ReplyTo:    msg,
+					}); err != nil {
+						log.Printf("platform[%s]: ack error: %v", p.ID(), err)
+					} else {
+						log.Printf("platform[%s]: ack sent sessionKey=%s", p.ID(), msg.SessionKey)
+					}
 				}
 
 				// Record message to DB (best-effort; failure does not block processing).
