@@ -6,7 +6,7 @@ import "context"
 type InboundMessage struct {
 	Platform   string // "feishu" | "dingtalk" | "mail"
 	SenderID   string
-	SessionKey string // platform-prefixed session key, e.g. "feishu:chatID"
+	SessionKey string // platform-prefixed session key, e.g. "feishu:chatID:userID"
 	Content    string
 	Raw        any // original platform event, used by the sender for reply metadata
 }
