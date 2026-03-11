@@ -41,6 +41,7 @@ func (r *DingTalkReceiver) Start(ctx context.Context, dispatch func(platform.Inb
 	)
 	cli.RegisterChatBotCallbackRouter(func(ctx context.Context, data *chatbot.BotCallbackDataModel) ([]byte, error) {
 		text := strings.TrimSpace(data.Text.Content)
+		log.Printf("dingtalk: received message conversationId=%s sender=%s text=%q", data.ConversationId, data.SenderNick, text)
 		if text == "" {
 			return []byte(""), nil
 		}
@@ -50,6 +51,7 @@ func (r *DingTalkReceiver) Start(ctx context.Context, dispatch func(platform.Inb
 			Content:    text,
 			Raw:        data,
 		})
+		log.Printf("dingtalk: dispatched message sessionKey=%s", "dingtalk:"+data.ConversationId)
 		return []byte(""), nil
 	})
 
@@ -69,9 +71,12 @@ func (s *DingTalkSender) Send(ctx context.Context, msg platform.OutboundMessage)
 		return nil
 	}
 	replier := chatbot.NewChatbotReplier()
+	log.Printf("dingtalk: sending reply sessionKey=%s webhookLen=%d contentLen=%d", msg.ReplyTo.SessionKey, len(data.SessionWebhook), len(msg.Content))
 	if err := replier.SimpleReplyMarkdown(ctx, data.SessionWebhook, []byte(markdownTitle), []byte(msg.Content)); err != nil {
-		log.Printf("dingtalk: send message error: %v", err)
+		log.Printf("dingtalk: reply send error: %v", err)
+		return nil
 	}
+	log.Printf("dingtalk: reply sent ok")
 	return nil
 }
 

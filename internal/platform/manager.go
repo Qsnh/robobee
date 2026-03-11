@@ -28,6 +28,7 @@ func (m *PlatformManager) StartAll(ctx context.Context) {
 		go func() {
 			sender := p.Sender()
 			dispatch := func(msg InboundMessage) {
+				log.Printf("platform[%s]: dispatch received sessionKey=%s contentLen=%d", p.ID(), msg.SessionKey, len(msg.Content))
 				if IsClearCommand(msg.Content) {
 					// Handle synchronously without ack — result is instant.
 					result := m.pipeline.Handle(context.Background(), msg)
@@ -48,10 +49,13 @@ func (m *PlatformManager) StartAll(ctx context.Context) {
 					ReplyTo:    msg,
 				}); err != nil {
 					log.Printf("platform[%s]: ack error: %v", p.ID(), err)
+				} else {
+					log.Printf("platform[%s]: ack sent sessionKey=%s", p.ID(), msg.SessionKey)
 				}
 
 				// Process and reply asynchronously.
 				// Known limitation: uses context.Background() — goroutine outlives server shutdown.
+				log.Printf("platform[%s]: async handler started sessionKey=%s", p.ID(), msg.SessionKey)
 				go func() {
 					result := m.pipeline.Handle(context.Background(), msg)
 					if err := sender.Send(context.Background(), OutboundMessage{
@@ -61,6 +65,7 @@ func (m *PlatformManager) StartAll(ctx context.Context) {
 					}); err != nil {
 						log.Printf("platform[%s]: send error: %v", p.ID(), err)
 					}
+					log.Printf("platform[%s]: async handler done sessionKey=%s", p.ID(), msg.SessionKey)
 				}()
 			}
 

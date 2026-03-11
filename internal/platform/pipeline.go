@@ -61,28 +61,34 @@ func (p *Pipeline) Handle(ctx context.Context, msg InboundMessage) string {
 		return clearMessage
 	}
 
+	log.Printf("platform: routing message sessionKey=%s content=%q", msg.SessionKey, msg.Content)
 	workerID, err := p.router.Route(ctx, msg.Content)
 	if err != nil {
 		log.Printf("platform: route error: %v", err)
 		return noWorkerMsg
 	}
+	log.Printf("platform: routed to workerID=%s", workerID)
 
 	sess, err := p.sessions.Get(msg.SessionKey)
 	if err != nil {
 		log.Printf("platform: get session error: %v", err)
 		return errorMessage
 	}
+	log.Printf("platform: session lookup sessionKey=%s found=%v", msg.SessionKey, sess != nil)
 
 	var exec model.WorkerExecution
 	if sess != nil && sess.LastExecutionID != "" {
+		log.Printf("platform: replying to execution execID=%s", sess.LastExecutionID)
 		exec, err = p.manager.ReplyExecution(ctx, sess.LastExecutionID, msg.Content)
 	} else {
+		log.Printf("platform: executing new worker workerID=%s", workerID)
 		exec, err = p.manager.ExecuteWorker(ctx, workerID, msg.Content)
 	}
 	if err != nil {
 		log.Printf("platform: execute error: %v", err)
 		return errorMessage
 	}
+	log.Printf("platform: execution started execID=%s sessionID=%s", exec.ID, exec.SessionID)
 
 	if err := p.sessions.Upsert(Session{
 		Key:             msg.SessionKey,
@@ -92,6 +98,8 @@ func (p *Pipeline) Handle(ctx context.Context, msg InboundMessage) string {
 		LastExecutionID: exec.ID,
 	}); err != nil {
 		log.Printf("platform: upsert session error: %v", err)
+	} else {
+		log.Printf("platform: session upsert ok sessionKey=%s execID=%s", msg.SessionKey, exec.ID)
 	}
 
 	return p.waitForResult(exec.ID)
@@ -99,11 +107,16 @@ func (p *Pipeline) Handle(ctx context.Context, msg InboundMessage) string {
 
 func (p *Pipeline) waitForResult(executionID string) string {
 	deadline := time.Now().Add(pollTimeout)
+	lastStatus := ""
 	for time.Now().Before(deadline) {
 		exec, err := p.manager.GetExecution(executionID)
 		if err != nil {
 			log.Printf("platform: poll execution error: %v", err)
 			return errorMessage
+		}
+		if string(exec.Status) != lastStatus {
+			log.Printf("platform: polling execID=%s status=%s", executionID, exec.Status)
+			lastStatus = string(exec.Status)
 		}
 		switch exec.Status {
 		case model.ExecStatusCompleted:
