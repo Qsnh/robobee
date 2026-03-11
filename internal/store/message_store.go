@@ -1,0 +1,129 @@
+package store
+
+import (
+	"context"
+	"database/sql"
+	"fmt"
+	"strings"
+
+	"github.com/robobee/core/internal/model"
+)
+
+// MessageStore persists platform messages to the platform_messages table.
+type MessageStore struct {
+	db *sql.DB
+}
+
+// NewMessageStore constructs a MessageStore.
+func NewMessageStore(db *sql.DB) *MessageStore {
+	return &MessageStore{db: db}
+}
+
+// Create inserts a new message record with status "received".
+func (s *MessageStore) Create(ctx context.Context, id, sessionKey, platform, content string) error {
+	_, err := s.db.ExecContext(ctx,
+		`INSERT INTO platform_messages (id, session_key, platform, content) VALUES (?, ?, ?, ?)`,
+		id, sessionKey, platform, content,
+	)
+	return err
+}
+
+// SetWorkerID sets the worker_id and advances status to "routed".
+func (s *MessageStore) SetWorkerID(ctx context.Context, id, workerID string) error {
+	_, err := s.db.ExecContext(ctx,
+		`UPDATE platform_messages SET worker_id = ?, status = 'routed' WHERE id = ?`,
+		workerID, id,
+	)
+	return err
+}
+
+// SetStatus updates the status of a single message.
+func (s *MessageStore) SetStatus(ctx context.Context, id, status string) error {
+	_, err := s.db.ExecContext(ctx,
+		`UPDATE platform_messages SET status = ? WHERE id = ?`,
+		status, id,
+	)
+	return err
+}
+
+// UpdateStatusBatch sets the same status on all provided message IDs.
+func (s *MessageStore) UpdateStatusBatch(ctx context.Context, ids []string, status string) error {
+	if len(ids) == 0 {
+		return nil
+	}
+	placeholders := strings.Repeat("?,", len(ids))
+	placeholders = placeholders[:len(placeholders)-1]
+	args := make([]any, 0, len(ids)+1)
+	args = append(args, status)
+	for _, id := range ids {
+		args = append(args, id)
+	}
+	_, err := s.db.ExecContext(ctx,
+		fmt.Sprintf(`UPDATE platform_messages SET status = ? WHERE id IN (%s)`, placeholders),
+		args...,
+	)
+	return err
+}
+
+// MarkMerged sets primaryID status to "merged" and records merged_into on all mergedIDs.
+func (s *MessageStore) MarkMerged(ctx context.Context, primaryID string, mergedIDs []string) error {
+	if _, err := s.db.ExecContext(ctx,
+		`UPDATE platform_messages SET status = 'merged' WHERE id = ?`, primaryID,
+	); err != nil {
+		return err
+	}
+	for _, id := range mergedIDs {
+		if _, err := s.db.ExecContext(ctx,
+			`UPDATE platform_messages SET status = 'merged', merged_into = ? WHERE id = ?`,
+			primaryID, id,
+		); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// MarkTerminal sets status to "done" or "failed" and records processed_at.
+func (s *MessageStore) MarkTerminal(ctx context.Context, ids []string, status string) error {
+	if len(ids) == 0 {
+		return nil
+	}
+	placeholders := strings.Repeat("?,", len(ids))
+	placeholders = placeholders[:len(placeholders)-1]
+	args := make([]any, 0, len(ids)+1)
+	args = append(args, status)
+	for _, id := range ids {
+		args = append(args, id)
+	}
+	_, err := s.db.ExecContext(ctx,
+		fmt.Sprintf(`UPDATE platform_messages SET status = ?, processed_at = datetime('now') WHERE id IN (%s)`, placeholders),
+		args...,
+	)
+	return err
+}
+
+// GetUnfinished returns messages with an active status that have a worker_id assigned,
+// ordered by received_at ASC. Used for startup recovery.
+func (s *MessageStore) GetUnfinished(ctx context.Context) ([]model.PendingMessage, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT id, session_key, worker_id, platform, content
+		FROM platform_messages
+		WHERE status IN ('routed', 'debouncing', 'merged', 'executing')
+		  AND worker_id != ''
+		ORDER BY received_at ASC
+	`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var msgs []model.PendingMessage
+	for rows.Next() {
+		var m model.PendingMessage
+		if err := rows.Scan(&m.ID, &m.SessionKey, &m.WorkerID, &m.Platform, &m.Content); err != nil {
+			return nil, err
+		}
+		msgs = append(msgs, m)
+	}
+	return msgs, rows.Err()
+}
