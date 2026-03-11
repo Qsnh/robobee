@@ -35,7 +35,7 @@ for _, col := range []string{
 }
 ```
 
-**Drop redundant tables:**
+**Drop redundant tables** (placed at the top of the `schema` string in `migrate()`, before all `CREATE TABLE IF NOT EXISTS` statements):
 
 ```sql
 DROP TABLE IF EXISTS platform_sessions;
@@ -84,7 +84,7 @@ Constructor drops `SessionStore`, takes `MessageStore` instead:
 func NewPipeline(router MessageRouter, msgStore MessageStore, manager ExecutionManager) *Pipeline
 ```
 
-**`Handle`** (used only for `clear`): replace `sessions.Delete` with sentinel insert:
+**`Handle`** is only ever called from `manager.go` for the `clear` command path. Its routing+execution branch becomes dead code after this change. Simplify `Handle` to only handle the clear path: check `IsClearCommand`, call `InsertClearSentinel`, and return. Remove the routing and execution branches entirely. Add a `uuid` import to `pipeline.go`.
 
 ```go
 p.msgStore.InsertClearSentinel(ctx, uuid.New().String(), msg.SessionKey, msg.Platform)
@@ -135,11 +135,25 @@ pipe := platform.NewPipeline(router, msgStore, mgr)
 
 ### store.MessageStore Implementation (`internal/store/message_store.go`)
 
-**`GetSession`:** Query the latest row for `session_key` ordered by `received_at DESC`. Return nil if status is `'clear'` or `execution_id` is empty (no execution has completed yet for this session).
+**`GetSession`:** SELECT the single latest row for `session_key` ordered by `received_at DESC` with no status filter (other than excluding `'clear'`). Populate all five `Session` fields from the row: `Key` (= `session_key`), `Platform`, `WorkerID` (from `worker_id`), `SessionID` (from `session_id`), `LastExecutionID` (from `execution_id`). Return nil in two cases:
+1. The latest row has `status = 'clear'` — user has reset their session.
+2. The latest row has `execution_id = ''` — this is the first message ever in the session, no execution has been written back yet.
+
+**Concurrency note:** There is no race between `GetSession` and `SetExecution` because `sessionQueue` serializes execution per `(session_key, worker_id)` pair. When a second message fires its executor, the first message's `SetExecution` call has already completed (it's called synchronously in `HandleRouted` before `waitForResult`). `GetUnfinished` already filters `worker_id != ''`, so `InsertClearSentinel` rows (which default `worker_id = ''`) are never recovered at startup.
+
+**Index:** Replace the existing `idx_platform_messages_session` index on `(session_key, worker_id, status)` with one on `(session_key, received_at DESC)` to support the `GetSession` query pattern:
+
+```sql
+DROP INDEX IF EXISTS idx_platform_messages_session;
+CREATE INDEX IF NOT EXISTS idx_platform_messages_session
+    ON platform_messages(session_key, received_at DESC);
+CREATE INDEX IF NOT EXISTS idx_platform_messages_worker_status
+    ON platform_messages(session_key, worker_id, status);
+```
 
 **`SetExecution`:** `UPDATE platform_messages SET execution_id = ?, session_id = ? WHERE id = ?`
 
-**`InsertClearSentinel`:** Insert a row with `status = 'clear'`, empty content, and the provided ID.
+**`InsertClearSentinel`:** Insert a row with `status = 'clear'`, empty `content` (explicit `''` — the column is `NOT NULL`), empty `worker_id`, `execution_id`, and `session_id` (all defaulting to `''`), using the provided `id`, `session_key`, and `platform`.
 
 ### Files Deleted
 
