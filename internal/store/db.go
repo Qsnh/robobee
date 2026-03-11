@@ -25,6 +25,11 @@ func InitDB(dbPath string) (*sql.DB, error) {
 
 func migrate(db *sql.DB) error {
 	schema := `
+	DROP TABLE IF EXISTS platform_sessions;
+	DROP TABLE IF EXISTS feishu_sessions;
+	DROP TABLE IF EXISTS dingtalk_sessions;
+	DROP TABLE IF EXISTS mail_sessions;
+
 	CREATE TABLE IF NOT EXISTS workers (
 		id TEXT PRIMARY KEY,
 		name TEXT NOT NULL,
@@ -53,20 +58,6 @@ func migrate(db *sql.DB) error {
 		FOREIGN KEY (worker_id) REFERENCES workers(id) ON DELETE CASCADE
 	);
 
-	CREATE TABLE IF NOT EXISTS platform_sessions (
-		session_key TEXT NOT NULL,
-		platform TEXT NOT NULL,
-		worker_id TEXT NOT NULL,
-		session_id TEXT NOT NULL,
-		last_execution_id TEXT NOT NULL DEFAULT '',
-		updated_at DATETIME NOT NULL DEFAULT (datetime('now')),
-		PRIMARY KEY (session_key, platform)
-	);
-
-	CREATE INDEX IF NOT EXISTS idx_worker_executions_worker_id ON worker_executions(worker_id);
-	CREATE INDEX IF NOT EXISTS idx_worker_executions_session_id ON worker_executions(session_id);
-	CREATE INDEX IF NOT EXISTS idx_workers_schedule ON workers(schedule_enabled) WHERE schedule_enabled = 1;
-
 	CREATE TABLE IF NOT EXISTS platform_messages (
 		id           TEXT PRIMARY KEY,
 		session_key  TEXT NOT NULL,
@@ -75,12 +66,32 @@ func migrate(db *sql.DB) error {
 		content      TEXT NOT NULL,
 		status       TEXT NOT NULL DEFAULT 'received',
 		merged_into  TEXT NOT NULL DEFAULT '',
+		execution_id TEXT NOT NULL DEFAULT '',
+		session_id   TEXT NOT NULL DEFAULT '',
 		received_at  DATETIME NOT NULL DEFAULT (datetime('now')),
 		processed_at DATETIME
 	);
+
+	CREATE INDEX IF NOT EXISTS idx_worker_executions_worker_id ON worker_executions(worker_id);
+	CREATE INDEX IF NOT EXISTS idx_worker_executions_session_id ON worker_executions(session_id);
+	CREATE INDEX IF NOT EXISTS idx_workers_schedule ON workers(schedule_enabled) WHERE schedule_enabled = 1;
+	DROP INDEX IF EXISTS idx_platform_messages_session;
 	CREATE INDEX IF NOT EXISTS idx_platform_messages_session
+		ON platform_messages(session_key, received_at DESC);
+	CREATE INDEX IF NOT EXISTS idx_platform_messages_worker_status
 		ON platform_messages(session_key, worker_id, status);
 	`
-	_, err := db.Exec(schema)
-	return err
+	if _, err := db.Exec(schema); err != nil {
+		return err
+	}
+
+	// Idempotent column additions for existing databases.
+	for _, stmt := range []string{
+		"ALTER TABLE platform_messages ADD COLUMN execution_id TEXT NOT NULL DEFAULT ''",
+		"ALTER TABLE platform_messages ADD COLUMN session_id  TEXT NOT NULL DEFAULT ''",
+	} {
+		db.Exec(stmt) // ignore "duplicate column name" on re-runs
+	}
+
+	return nil
 }

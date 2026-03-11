@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/robobee/core/internal/model"
+	"github.com/robobee/core/internal/platform"
 )
 
 // MessageStore persists platform messages to the platform_messages table.
@@ -126,4 +127,50 @@ func (s *MessageStore) GetUnfinished(ctx context.Context) ([]model.PendingMessag
 		msgs = append(msgs, m)
 	}
 	return msgs, rows.Err()
+}
+
+// GetSession returns the session state derived from the latest message row for
+// the given sessionKey. Returns nil if no session exists, the latest row is a
+// 'clear' sentinel, or no execution has been written yet (execution_id is empty).
+func (s *MessageStore) GetSession(ctx context.Context, sessionKey string) (*platform.Session, error) {
+	row := s.db.QueryRowContext(ctx, `
+		SELECT status, worker_id, execution_id, session_id, platform
+		FROM platform_messages
+		WHERE session_key = ?
+		ORDER BY received_at DESC, rowid DESC
+		LIMIT 1`, sessionKey)
+
+	var status, workerID, executionID, sessionID, plt string
+	if err := row.Scan(&status, &workerID, &executionID, &sessionID, &plt); err == sql.ErrNoRows {
+		return nil, nil
+	} else if err != nil {
+		return nil, err
+	}
+	if status == "clear" || executionID == "" {
+		return nil, nil
+	}
+	return &platform.Session{
+		Key:             sessionKey,
+		Platform:        plt,
+		WorkerID:        workerID,
+		SessionID:       sessionID,
+		LastExecutionID: executionID,
+	}, nil
+}
+
+// SetExecution records execution metadata on the given message row.
+func (s *MessageStore) SetExecution(ctx context.Context, msgID, executionID, sessionID string) error {
+	_, err := s.db.ExecContext(ctx,
+		`UPDATE platform_messages SET execution_id = ?, session_id = ? WHERE id = ?`,
+		executionID, sessionID, msgID)
+	return err
+}
+
+// InsertClearSentinel inserts a 'clear' sentinel row to mark the session as reset.
+func (s *MessageStore) InsertClearSentinel(ctx context.Context, id, sessionKey, plt string) error {
+	_, err := s.db.ExecContext(ctx,
+		`INSERT INTO platform_messages (id, session_key, platform, content, status)
+		 VALUES (?, ?, ?, '', 'clear')`,
+		id, sessionKey, plt)
+	return err
 }
