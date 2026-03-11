@@ -31,12 +31,3 @@ dingtalk:
   client_id: ""
   client_secret: ""
 
-mail:
-  enabled: false
-  imap_host: "imap.gmail.com:993"
-  smtp_host: "smtp.gmail.com:587"
-  username: ""
-  password: ""
-  poll_interval: "30s"
-  mailbox: "INBOX"
-  subject_keywords: []  # 留空则处理所有邮件；非空则只处理标题含任意关键字的邮件（大小写不敏感）
