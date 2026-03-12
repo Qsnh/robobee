@@ -58,12 +58,13 @@ func (r *DingTalkReceiver) Start(ctx context.Context, dispatch func(platform.Inb
 			rawContent = string(rawBytes)
 		}
 		msg := platform.InboundMessage{
-			Platform:   "dingtalk",
-			SenderID:   data.SenderStaffId,
-			SessionKey: "dingtalk:" + data.ConversationId + ":" + data.SenderStaffId,
-			Content:    text,
-			RawContent: rawContent,
-			Raw:        data,
+			Platform:          "dingtalk",
+			SenderID:          data.SenderStaffId,
+			SessionKey:        "dingtalk:" + data.ConversationId + ":" + data.SenderStaffId,
+			Content:           text,
+			RawContent:        rawContent,
+			Raw:               data,
+			PlatformMessageID: data.MsgId,
 		}
 		dispatch(msg)
 		log.Printf("dingtalk: dispatched message sessionKey=%s", msg.SessionKey)

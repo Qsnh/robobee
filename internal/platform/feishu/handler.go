@@ -78,12 +78,13 @@ func (r *FeishuReceiver) Start(ctx context.Context, dispatch func(platform.Inbou
 			}
 			senderID := *sender.SenderId.OpenId
 			dispatch(platform.InboundMessage{
-				Platform:   "feishu",
-				SenderID:   senderID,
-				SessionKey: "feishu:" + *msg.ChatId + ":" + senderID,
-				Content:    text,
-				RawContent: *msg.Content,
-				Raw:        event,
+				Platform:          "feishu",
+				SenderID:          senderID,
+				SessionKey:        "feishu:" + *msg.ChatId + ":" + senderID,
+				Content:           text,
+				RawContent:        *msg.Content,
+				Raw:               event,
+				PlatformMessageID: feishuMsgID(msg.MessageId),
 			})
 			return nil
 		})
@@ -151,6 +152,15 @@ var _ platform.PlatformSenderAdapter = (*FeishuSender)(nil)
 func derefStr(s *string) string {
 	if s == nil {
 		return "<nil>"
+	}
+	return *s
+}
+
+// feishuMsgID safely dereferences a *string message ID.
+// Returns "" (not "<nil>") for nil so dedup is skipped when MessageId is absent.
+func feishuMsgID(s *string) string {
+	if s == nil {
+		return ""
 	}
 	return *s
 }
