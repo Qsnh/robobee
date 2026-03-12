@@ -2,6 +2,7 @@ package msgsender_test
 
 import (
 	"context"
+	"sync"
 	"testing"
 	"time"
 
@@ -10,10 +11,13 @@ import (
 )
 
 type mockSender struct {
+	mu   sync.Mutex
 	sent []platform.OutboundMessage
 }
 
 func (s *mockSender) Send(_ context.Context, msg platform.OutboundMessage) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	s.sent = append(s.sent, msg)
 	return nil
 }
@@ -40,11 +44,19 @@ func TestGateway_SendsACK(t *testing.T) {
 
 	time.Sleep(100 * time.Millisecond)
 
-	if len(sender.sent) != 1 {
-		t.Fatalf("expected 1 send call, got %d", len(sender.sent))
+	sender.mu.Lock()
+	count := len(sender.sent)
+	var content string
+	if count > 0 {
+		content = sender.sent[0].Content
 	}
-	if sender.sent[0].Content != "⏳ 正在处理，请稍候…" {
-		t.Fatalf("unexpected content: %q", sender.sent[0].Content)
+	sender.mu.Unlock()
+
+	if count != 1 {
+		t.Fatalf("expected 1 send call, got %d", count)
+	}
+	if content != "⏳ 正在处理，请稍候…" {
+		t.Fatalf("unexpected content: %q", content)
 	}
 }
 

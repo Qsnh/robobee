@@ -43,7 +43,7 @@ func (g *Gateway) Run(ctx context.Context) {
 			if !ok {
 				return
 			}
-			g.send(evt)
+			g.send(ctx, evt)
 		case <-ctx.Done():
 			return
 		}
@@ -52,13 +52,16 @@ func (g *Gateway) Run(ctx context.Context) {
 
 // Note: msgsender has no output channel to close — it is the terminal sink.
 
-func (g *Gateway) send(evt SenderEvent) {
+// send is called synchronously to preserve per-platform message ordering.
+// A slow platform adapter will block the Run loop; callers are expected to
+// size g.in appropriately to absorb burst traffic.
+func (g *Gateway) send(ctx context.Context, evt SenderEvent) {
 	sender, ok := g.senders[evt.ReplyTo.Platform]
 	if !ok {
 		log.Printf("msgsender: no sender for platform %q", evt.ReplyTo.Platform)
 		return
 	}
-	if err := sender.Send(context.Background(), platform.OutboundMessage{
+	if err := sender.Send(ctx, platform.OutboundMessage{
 		SessionKey: evt.ReplyTo.SessionKey,
 		Content:    evt.Content,
 		ReplyTo:    evt.ReplyTo,
