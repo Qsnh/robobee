@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/robobee/core/internal/model"
 	"github.com/robobee/core/internal/platform"
@@ -25,9 +26,10 @@ func NewMessageStore(db *sql.DB) *MessageStore {
 // If platform_msg_id is empty, the insert always proceeds (no dedup).
 func (s *MessageStore) Create(ctx context.Context, id, sessionKey, platform, content, raw, platformMsgID string) (bool, error) {
 	result, err := s.db.ExecContext(ctx,
-		`INSERT OR IGNORE INTO platform_messages (id, session_key, platform, content, raw, platform_msg_id)
-		 VALUES (?, ?, ?, ?, ?, ?)`,
+		`INSERT OR IGNORE INTO platform_messages (id, session_key, platform, content, raw, platform_msg_id, received_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?)`,
 		id, sessionKey, platform, content, raw, platformMsgID,
+		time.Now().UTC().Format("2006-01-02T15:04:05.000Z"),
 	)
 	if err != nil {
 		return false, err

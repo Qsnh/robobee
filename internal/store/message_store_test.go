@@ -296,6 +296,25 @@ func TestMessageStore_Create_Dedup_EmptyPlatformMsgIDNotDeduped(t *testing.T) {
 	}
 }
 
+func TestMessageStore_Create_ReceivedAtMillisecondPrecision(t *testing.T) {
+	s := setupMessageStore(t)
+	ctx := context.Background()
+
+	s.Create(ctx, "msg-ms", "feishu:chat1:userA", "feishu", "hello", "", "") //nolint
+
+	var receivedAt string
+	err := s.db.QueryRowContext(ctx,
+		`SELECT received_at FROM platform_messages WHERE id = ?`, "msg-ms",
+	).Scan(&receivedAt)
+	if err != nil {
+		t.Fatalf("scan received_at: %v", err)
+	}
+	// must match 2026-03-11T10:30:00.123Z (millisecond suffix + Z)
+	if len(receivedAt) < 24 || receivedAt[19] != '.' || receivedAt[len(receivedAt)-1] != 'Z' {
+		t.Errorf("received_at %q: want millisecond format like 2026-03-11T10:30:00.123Z", receivedAt)
+	}
+}
+
 func TestMessageStore_InsertClearSentinel_UnaffectedByDedupSchema(t *testing.T) {
 	s := setupMessageStore(t)
 	ctx := context.Background()
