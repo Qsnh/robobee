@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/robobee/core/internal/ai"
 	"github.com/robobee/core/internal/config"
 	"github.com/robobee/core/internal/model"
 	"github.com/robobee/core/internal/store"
@@ -37,7 +36,6 @@ type Manager struct {
 	cfg            config.Config
 	workerStore    *store.WorkerStore
 	executionStore *store.ExecutionStore
-	cronResolver   ai.CronResolver
 
 	activeRuntimes map[string]Runtime      // execution_id -> runtime
 	logSubscribers map[string][]chan Output // execution_id -> subscribers
@@ -48,26 +46,18 @@ func NewManager(
 	cfg config.Config,
 	ws *store.WorkerStore,
 	es *store.ExecutionStore,
-	cronResolver ai.CronResolver,
 ) *Manager {
 	return &Manager{
 		cfg:            cfg,
 		workerStore:    ws,
 		executionStore: es,
-		cronResolver:   cronResolver,
 		activeRuntimes: make(map[string]Runtime),
 		logSubscribers: make(map[string][]chan Output),
 	}
 }
 
-func (m *Manager) ResolveCron(ctx context.Context, description string) (string, error) {
-	return m.cronResolver.CronFromDescription(ctx, description)
-}
-
 func (m *Manager) CreateWorker(
 	name, description, prompt string,
-	scheduleDescription string,
-	scheduleEnabled bool,
 	workDir string,
 ) (model.Worker, error) {
 	id := uuid.New().String()
@@ -88,24 +78,12 @@ func (m *Manager) CreateWorker(
 		}
 	}
 
-	var cronExpression string
-	if scheduleEnabled && scheduleDescription != "" {
-		var err error
-		cronExpression, err = m.cronResolver.CronFromDescription(context.Background(), scheduleDescription)
-		if err != nil {
-			return model.Worker{}, fmt.Errorf("generate cron expression: %w", err)
-		}
-	}
-
 	return m.workerStore.Create(model.Worker{
-		ID:                  id,
-		Name:                name,
-		Description:         description,
-		Prompt:              prompt,
-		WorkDir:             workDir,
-		CronExpression:      cronExpression,
-		ScheduleDescription: scheduleDescription,
-		ScheduleEnabled:     scheduleEnabled,
+		ID:          id,
+		Name:        name,
+		Description: description,
+		Prompt:      prompt,
+		WorkDir:     workDir,
 	})
 }
 
@@ -130,7 +108,7 @@ func (m *Manager) ExecuteWorker(ctx context.Context, workerID, triggerInput stri
 
 	// Build the prompt: base prompt + trigger input
 	prompt := worker.Prompt
-	if triggerInput != "" && triggerInput != "scheduled" {
+	if triggerInput != "" {
 		if worker.Prompt != "" {
 			prompt = fmt.Sprintf("%s\n\n---\nMessage:\n%s", worker.Prompt, triggerInput)
 		} else {
