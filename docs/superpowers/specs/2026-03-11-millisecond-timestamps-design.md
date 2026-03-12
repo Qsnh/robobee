@@ -22,15 +22,15 @@ Four timestamp columns across two tables:
 
 ### Storage Format
 
-All timestamps stored as TEXT in ISO 8601 format with millisecond precision:
+All timestamps stored as TEXT in ISO 8601 format with millisecond precision and UTC `Z` suffix:
 
 ```
-2026-03-11T10:30:00.123
+2026-03-11T10:30:00.123Z
 ```
 
-Format string: `"2006-01-02T15:04:05.000"` (Go) / `strftime('%Y-%m-%dT%H:%M:%f', 'now')` (SQLite).
+Format string: `"2006-01-02T15:04:05.000Z"` (Go) / `strftime('%Y-%m-%dT%H:%M:%fZ', 'now')` (SQLite).
 
-This format is lexicographically sortable, compatible with SQLite's TEXT comparison, and parseable by both `mattn/go-sqlite3` and `modernc.org/sqlite` drivers back into `time.Time`.
+The `Z` suffix is required: `mattn/go-sqlite3` only auto-parses TEXT into `time.Time` for formats that include a timezone marker. Without `Z`, scanning into `*time.Time` will fail silently or error. With `Z`, the format matches the driver's recognized RFC3339-with-fractional-seconds pattern. The format remains lexicographically sortable (UTC-only, fixed-width milliseconds).
 
 ### Schema Changes (`internal/store/db.go`)
 
@@ -38,68 +38,80 @@ Update `CREATE TABLE` defaults to use millisecond-precision SQLite functions:
 
 ```sql
 -- platform_messages
-received_at DATETIME NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f', 'now')),
+received_at DATETIME NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
 
--- worker_executions (add defaults as fallback)
-started_at   DATETIME DEFAULT (strftime('%Y-%m-%dT%H:%M:%f', 'now')),
-completed_at DATETIME DEFAULT (strftime('%Y-%m-%dT%H:%M:%f', 'now')),
+-- worker_executions (defensive fallback for direct SQL inserts)
+started_at   DATETIME DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+completed_at DATETIME DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
 ```
+
+Note: Go code always supplies explicit values for these columns; the `DEFAULT` is a defensive fallback for direct SQL inserts and tests. The `CREATE TABLE IF NOT EXISTS` change applies only to new databases — existing databases continue to work correctly, with old rows retaining second-level precision.
 
 ### Go Write-Side Changes
 
 **`internal/store/message_store.go`**
 
-`Create()` — insert `received_at` explicitly:
+`Create()` — add `received_at` to INSERT, binding a Go-formatted millisecond string:
 ```go
 result, err := s.db.ExecContext(ctx,
     `INSERT OR IGNORE INTO platform_messages
          (id, session_key, platform, content, raw, platform_msg_id, received_at)
      VALUES (?, ?, ?, ?, ?, ?, ?)`,
     id, sessionKey, platform, content, raw, platformMsgID,
-    time.Now().UTC().Format("2006-01-02T15:04:05.000"),
+    time.Now().UTC().Format("2006-01-02T15:04:05.000Z"),
 )
 ```
 
-`MarkTerminal()` — pass `processed_at` from Go instead of SQL `datetime('now')`:
+`MarkTerminal()` — replace `datetime('now')` with a Go-bound parameter. The args slice gains one extra element for `processed_at` inserted after `status`:
 ```go
-// before binding other params, compute:
-now := time.Now().UTC().Format("2006-01-02T15:04:05.000")
-// use `now` in the UPDATE SET processed_at = ?
+now := time.Now().UTC().Format("2006-01-02T15:04:05.000Z")
+args := make([]any, 0, len(ids)+2)
+args = append(args, status, now)        // status=?, processed_at=?
+for _, id := range ids {
+    args = append(args, id)             // id IN (?, ?, ...)
+}
+// query: SET status = ?, processed_at = ? WHERE id IN (...)
 ```
+
+`InsertClearSentinel()` — no change needed. It omits `received_at`, so it picks up the new `DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))` automatically.
 
 **`internal/store/execution_store.go`**
 
-`create()` — format `started_at` as millisecond string:
+`create()` — format `started_at` as a millisecond string for the INSERT, while keeping `exec.StartedAt` pointing to the original `time.Time` for the returned struct:
 ```go
-startedAt := time.Now().UTC().Format("2006-01-02T15:04:05.000")
-// pass startedAt in INSERT instead of time.Now().UTC()
+now := time.Now().UTC()
+startedAtStr := now.Format("2006-01-02T15:04:05.000Z")
+exec := model.WorkerExecution{
+    // ... other fields ...
+    StartedAt: &now,   // struct field stays *time.Time
+}
+_, err := s.db.Exec(
+    `INSERT INTO worker_executions (..., started_at) VALUES (..., ?)`,
+    // ... other args ..., startedAtStr,   // DB gets formatted string
+)
 ```
 
 `UpdateResult()` — format `completed_at` as millisecond string:
 ```go
-completedAt := time.Now().UTC().Format("2006-01-02T15:04:05.000")
-// pass completedAt in UPDATE instead of time.Now().UTC()
+now := time.Now().UTC()
+completedAt := now.Format("2006-01-02T15:04:05.000Z")
+_, err := s.db.Exec(
+    `UPDATE worker_executions SET result=?, status=?, completed_at=? WHERE id=?`,
+    result, status, completedAt, id,
+)
 ```
 
 ### Model / Scan Compatibility
 
-`WorkerExecution.StartedAt` and `CompletedAt` remain `*time.Time`. The SQLite driver parses the millisecond TEXT format back into `time.Time` correctly. No model struct changes required.
+`WorkerExecution.StartedAt` and `CompletedAt` remain `*time.Time`. When `scanExecution()` scans these columns, `mattn/go-sqlite3` recognizes the `2026-03-11T10:30:00.123Z` format as RFC3339-with-fractional-seconds and converts it back to `time.Time` correctly. No model struct or API changes required.
 
 ### Existing Data
 
-Old rows retain second-level precision. Mixed ordering (old second-precision + new millisecond-precision) is acceptable: same-second old rows fall back to `rowid` as before, which is fine since they predate the fix.
-
-### No Migrations Required
-
-`ALTER COLUMN DEFAULT` is not supported in SQLite. Since:
-1. Go code explicitly passes the value (not relying on DEFAULT), the DEFAULT in schema is only a fallback for direct SQL inserts.
-2. No data migration is needed for existing rows.
-
-The `CREATE TABLE IF NOT EXISTS` change applies to new databases only. Existing databases continue to work correctly.
+Old rows retain second-level precision. Mixed ordering is acceptable: same-second old rows fall back to `rowid` as before, which is fine since they predate the fix.
 
 ## Files to Change
 
-1. `internal/store/db.go` — update `CREATE TABLE` defaults for all four columns
+1. `internal/store/db.go` — update `CREATE TABLE` defaults for `received_at`, `started_at`, `completed_at`
 2. `internal/store/message_store.go` — `Create()` and `MarkTerminal()`
 3. `internal/store/execution_store.go` — `create()` and `UpdateResult()`
 
