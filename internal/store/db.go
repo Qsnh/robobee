@@ -68,8 +68,9 @@ func migrate(db *sql.DB) error {
 		merged_into  TEXT NOT NULL DEFAULT '',
 		execution_id TEXT NOT NULL DEFAULT '',
 		session_id   TEXT NOT NULL DEFAULT '',
-		received_at  DATETIME NOT NULL DEFAULT (datetime('now')),
-		processed_at DATETIME
+		received_at     DATETIME NOT NULL DEFAULT (datetime('now')),
+		processed_at    DATETIME,
+		platform_msg_id TEXT NOT NULL DEFAULT ''
 	);
 
 	CREATE INDEX IF NOT EXISTS idx_worker_executions_worker_id ON worker_executions(worker_id);
@@ -80,6 +81,9 @@ func migrate(db *sql.DB) error {
 		ON platform_messages(session_key, received_at DESC);
 	CREATE INDEX IF NOT EXISTS idx_platform_messages_worker_status
 		ON platform_messages(session_key, worker_id, status);
+	CREATE UNIQUE INDEX IF NOT EXISTS idx_platform_messages_platform_msg_id
+		ON platform_messages(platform_msg_id)
+		WHERE platform_msg_id != '';
 	`
 	if _, err := db.Exec(schema); err != nil {
 		return err
@@ -90,6 +94,8 @@ func migrate(db *sql.DB) error {
 		"ALTER TABLE platform_messages ADD COLUMN execution_id TEXT NOT NULL DEFAULT ''",
 		"ALTER TABLE platform_messages ADD COLUMN session_id  TEXT NOT NULL DEFAULT ''",
 		"ALTER TABLE platform_messages ADD COLUMN raw         TEXT NOT NULL DEFAULT ''",
+		"ALTER TABLE platform_messages ADD COLUMN platform_msg_id TEXT NOT NULL DEFAULT ''",
+		"CREATE UNIQUE INDEX IF NOT EXISTS idx_platform_messages_platform_msg_id ON platform_messages(platform_msg_id) WHERE platform_msg_id != ''",
 	} {
 		db.Exec(stmt) // ignore "duplicate column name" on re-runs
 	}
