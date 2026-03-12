@@ -78,7 +78,7 @@ func (c *ClaudeCodeClient) RouteToWorker(ctx context.Context, message string, wo
 	}
 
 	prompt := fmt.Sprintf(
-		"You are a task router. Given a list of workers and a user message, return ONLY the ID of the most suitable worker. No explanation, no markdown, just the ID.\n\nWorkers:\n%s\nUser message: %s",
+		"You are a task router. Given a list of workers and a user message, return ONLY the ID of the most suitable worker. No explanation, no markdown, just the ID.\n\nFirst, check if the message explicitly names or refers to one of the workers by name (e.g., \"让 XX 处理\", \"请 XX 来做\", \"用 XX worker\"). If so, return that worker's ID directly — do not match by description. Only if no worker is explicitly named should you select the best match by description. If the name is partial or ambiguous, fall back to description-based matching.\n\nWorkers:\n%s\nUser message: %s",
 		sb.String(), message,
 	)
 
