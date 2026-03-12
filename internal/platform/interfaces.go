@@ -2,8 +2,6 @@ package platform
 
 import (
 	"context"
-
-	"github.com/robobee/core/internal/model"
 )
 
 // InboundMessage carries a parsed message from any platform.
@@ -48,19 +46,4 @@ type Session struct {
 	WorkerID        string
 	SessionID       string
 	LastExecutionID string
-}
-
-// MessageStore is the subset of store.MessageStore operations used by the queue and pipeline.
-// The concrete implementation is *store.MessageStore.
-type MessageStore interface {
-	Create(ctx context.Context, id, sessionKey, platform, content, raw, platformMsgID string) (bool, error)
-	SetWorkerID(ctx context.Context, id, workerID string) error
-	SetStatus(ctx context.Context, id, status string) error
-	UpdateStatusBatch(ctx context.Context, ids []string, status string) error
-	MarkMerged(ctx context.Context, primaryID string, mergedIDs []string) error
-	MarkTerminal(ctx context.Context, ids []string, status string) error
-	GetUnfinished(ctx context.Context) ([]model.PendingMessage, error)
-	GetSession(ctx context.Context, sessionKey string) (*Session, error)
-	SetExecution(ctx context.Context, msgID, executionID, sessionID string) error
-	InsertClearSentinel(ctx context.Context, id, sessionKey, platform string) error
 }
