@@ -96,10 +96,15 @@ func (m *PlatformManager) StartAll(ctx context.Context) {
 					}
 				}
 
-				// Record message to DB (best-effort; failure does not block processing).
+				// Record message to DB. Returns inserted=false if platform already pushed this message (dedup).
 				msgID := uuid.New().String()
-				if err := m.msgStore.Create(context.Background(), msgID, msg.SessionKey, msg.Platform, msg.Content, msg.RawContent); err != nil {
+				inserted, err := m.msgStore.Create(context.Background(), msgID, msg.SessionKey, msg.Platform, msg.Content, msg.RawContent, msg.PlatformMessageID)
+				if err != nil {
 					log.Printf("platform[%s]: record message error: %v", p.ID(), err)
+				}
+				if !inserted {
+					log.Printf("platform[%s]: duplicate message dropped platformMsgID=%s", p.ID(), msg.PlatformMessageID)
+					return
 				}
 
 				// Route to find worker ID.
