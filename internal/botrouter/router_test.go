@@ -71,3 +71,21 @@ func TestRouter_Route_NoWorkers_ReturnsError(t *testing.T) {
 		t.Fatal("expected error when no workers available")
 	}
 }
+
+func TestRouter_Route_UnknownWorkerID(t *testing.T) {
+	workers := []model.Worker{
+		{ID: "w1", Name: "mas", Description: "market analyst", WorkDir: t.TempDir()},
+	}
+
+	mock := &mockRouter{
+		routeFunc: func(_ string, _ []ai.WorkerSummary) (string, error) {
+			return "unknown-id", nil // returns an ID not in the worker store
+		},
+	}
+	router := newTestRouter(t, mock, workers)
+
+	_, err := router.Route(context.Background(), "some message")
+	if err == nil {
+		t.Fatal("expected error when router returns unknown worker ID")
+	}
+}
