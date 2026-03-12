@@ -11,6 +11,19 @@ import (
 	"github.com/robobee/core/internal/platform"
 )
 
+// BatchMsg is a single row for a bulk insert via CreateBatch.
+type BatchMsg struct {
+	ID            string
+	SessionKey    string
+	Platform      string
+	Content       string
+	Raw           string
+	PlatformMsgID string
+	MessageTime   int64
+	Status        string // "received" or "merged"
+	MergedInto    string // non-empty only when Status == "merged"
+}
+
 // MessageStore persists platform messages to the platform_messages table.
 type MessageStore struct {
 	db *sql.DB
@@ -189,4 +202,38 @@ func (s *MessageStore) InsertClearSentinel(ctx context.Context, id, sessionKey, 
 		 VALUES (?, ?, ?, '', 'clear', ?)`,
 		id, sessionKey, plt, time.Now().UnixMilli())
 	return err
+}
+
+// CreateBatch inserts multiple message rows in a single transaction using
+// INSERT OR IGNORE. Returns the number of rows actually inserted.
+// MessageTime is used as received_at; falls back to time.Now().UnixMilli() if zero.
+func (s *MessageStore) CreateBatch(ctx context.Context, msgs []BatchMsg) (int64, error) {
+	if len(msgs) == 0 {
+		return 0, nil
+	}
+
+	now := time.Now().UnixMilli()
+	placeholders := strings.Repeat("(?,?,?,?,?,?,?,?,?),", len(msgs))
+	placeholders = placeholders[:len(placeholders)-1]
+
+	args := make([]any, 0, len(msgs)*9)
+	for _, m := range msgs {
+		mt := m.MessageTime
+		if mt == 0 {
+			mt = now
+		}
+		args = append(args, m.ID, m.SessionKey, m.Platform, m.Content, m.Raw,
+			m.PlatformMsgID, mt, m.Status, m.MergedInto)
+	}
+
+	result, err := s.db.ExecContext(ctx,
+		fmt.Sprintf(`INSERT OR IGNORE INTO platform_messages
+			(id, session_key, platform, content, raw, platform_msg_id, received_at, status, merged_into)
+			VALUES %s`, placeholders),
+		args...,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }

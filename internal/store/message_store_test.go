@@ -6,6 +6,106 @@ import (
 	"time"
 )
 
+func TestMessageStore_CreateBatch(t *testing.T) {
+	s := setupMessageStore(t)
+	ctx := context.Background()
+
+	now := time.Now().UnixMilli()
+	primaryID := "primary-1"
+	mergedID := "merged-1"
+
+	msgs := []BatchMsg{
+		{
+			ID: mergedID, SessionKey: "s1", Platform: "test",
+			Content: "first", Raw: "", PlatformMsgID: "pmsg-1",
+			MessageTime: now, Status: "merged", MergedInto: primaryID,
+		},
+		{
+			ID: primaryID, SessionKey: "s1", Platform: "test",
+			Content: "first\n\n---\n\nsecond", Raw: "", PlatformMsgID: "pmsg-2",
+			MessageTime: now, Status: "received", MergedInto: "",
+		},
+	}
+
+	inserted, err := s.CreateBatch(ctx, msgs)
+	if err != nil {
+		t.Fatalf("CreateBatch error: %v", err)
+	}
+	if inserted != 2 {
+		t.Fatalf("expected 2 rows inserted, got %d", inserted)
+	}
+
+	// Verify merged row
+	var status, mergedInto string
+	if err := s.db.QueryRowContext(ctx,
+		`SELECT status, merged_into FROM platform_messages WHERE id = ?`, mergedID,
+	).Scan(&status, &mergedInto); err != nil {
+		t.Fatalf("scan merged row: %v", err)
+	}
+	if status != "merged" {
+		t.Errorf("merged row: want status=merged, got %q", status)
+	}
+	if mergedInto != primaryID {
+		t.Errorf("merged row: want merged_into=%q, got %q", primaryID, mergedInto)
+	}
+
+	// Verify primary row
+	if err := s.db.QueryRowContext(ctx,
+		`SELECT status, merged_into FROM platform_messages WHERE id = ?`, primaryID,
+	).Scan(&status, &mergedInto); err != nil {
+		t.Fatalf("scan primary row: %v", err)
+	}
+	if status != "received" {
+		t.Errorf("primary row: want status=received, got %q", status)
+	}
+	if mergedInto != "" {
+		t.Errorf("primary row: want merged_into empty, got %q", mergedInto)
+	}
+}
+
+func TestMessageStore_CreateBatch_DuplicateIgnored(t *testing.T) {
+	s := setupMessageStore(t)
+	ctx := context.Background()
+
+	msg := BatchMsg{
+		ID: "id-1", SessionKey: "s1", Platform: "test",
+		Content: "hello", Raw: "", PlatformMsgID: "pmsg-dup",
+		MessageTime: time.Now().UnixMilli(), Status: "received", MergedInto: "",
+	}
+
+	// First insert: should succeed
+	inserted, err := s.CreateBatch(ctx, []BatchMsg{msg})
+	if err != nil {
+		t.Fatalf("first CreateBatch error: %v", err)
+	}
+	if inserted != 1 {
+		t.Fatalf("expected 1 row inserted, got %d", inserted)
+	}
+
+	// Second insert with same platform_msg_id: INSERT OR IGNORE should skip it
+	msg.ID = "id-2" // different row ID but same platform_msg_id
+	inserted, err = s.CreateBatch(ctx, []BatchMsg{msg})
+	if err != nil {
+		t.Fatalf("second CreateBatch error: %v", err)
+	}
+	if inserted != 0 {
+		t.Fatalf("expected 0 rows inserted (duplicate ignored), got %d", inserted)
+	}
+}
+
+func TestMessageStore_CreateBatch_Empty(t *testing.T) {
+	s := setupMessageStore(t)
+	ctx := context.Background()
+
+	inserted, err := s.CreateBatch(ctx, nil)
+	if err != nil {
+		t.Fatalf("CreateBatch(nil) error: %v", err)
+	}
+	if inserted != 0 {
+		t.Fatalf("expected 0 rows inserted for empty batch, got %d", inserted)
+	}
+}
+
 func setupMessageStore(t *testing.T) *MessageStore {
 	t.Helper()
 	db, err := InitDB(t.TempDir() + "/test.db")
