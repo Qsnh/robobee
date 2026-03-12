@@ -137,7 +137,7 @@ func (s *MessageStore) GetUnfinished(ctx context.Context) ([]model.PendingMessag
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT id, session_key, worker_id, platform, content
 		FROM platform_messages
-		WHERE status IN ('routed', 'debouncing', 'merged', 'executing')
+		WHERE status IN ('routed', 'executing')
 		  AND worker_id != ''
 		ORDER BY received_at ASC
 	`)

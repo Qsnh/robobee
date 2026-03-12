@@ -97,6 +97,11 @@ var migrations = []migration{
 		name:    "20260311000009_create_index_platform_messages_platform_msg_id",
 		sql:     `CREATE UNIQUE INDEX IF NOT EXISTS idx_platform_messages_platform_msg_id ON platform_messages(platform_msg_id) WHERE platform_msg_id != ''`,
 	},
+	{
+		version: 10,
+		name:    "20260312000001_migrate_debouncing_to_failed",
+		sql:     `UPDATE platform_messages SET status = 'failed' WHERE status = 'debouncing'`,
+	},
 }
 
 func InitDB(dbPath string) (*sql.DB, error) {
