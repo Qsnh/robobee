@@ -110,6 +110,7 @@ func queueKey(sessionKey, workerID string) string {
 
 func (d *Dispatcher) handleInbound(msg msgrouter.RoutedMessage) {
 	if msg.RouteErr != "" {
+		d.msgStore.MarkTerminal(context.Background(), []string{msg.MsgID}, "failed") //nolint:errcheck
 		select {
 		case d.out <- msgsender.SenderEvent{Type: msgsender.SenderEventError, ReplyTo: msg.ReplyTo, Content: msg.RouteErr}:
 		case <-d.ctx.Done():
