@@ -58,16 +58,28 @@ func (g *Gateway) Run(ctx context.Context) {
 
 func (g *Gateway) route(ctx context.Context, msg msgingest.IngestedMessage) {
 	if msg.Command != msgingest.CommandNone {
-		g.out <- RoutedMessage{IngestedMessage: msg}
+		select {
+		case g.out <- RoutedMessage{IngestedMessage: msg}:
+		case <-ctx.Done():
+			return
+		}
 		return
 	}
 
 	workerID, err := g.router.Route(ctx, msg.Content)
 	if err != nil {
 		log.Printf("msgrouter: route error sessionKey=%s: %v", msg.SessionKey, err)
-		g.out <- RoutedMessage{IngestedMessage: msg, RouteErr: noWorkerMsg}
+		select {
+		case g.out <- RoutedMessage{IngestedMessage: msg, RouteErr: noWorkerMsg}:
+		case <-ctx.Done():
+			return
+		}
 		return
 	}
 
-	g.out <- RoutedMessage{IngestedMessage: msg, WorkerID: workerID}
+	select {
+	case g.out <- RoutedMessage{IngestedMessage: msg, WorkerID: workerID}:
+	case <-ctx.Done():
+		return
+	}
 }
