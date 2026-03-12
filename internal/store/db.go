@@ -52,8 +52,8 @@ func migrate(db *sql.DB) error {
 		result TEXT NOT NULL DEFAULT '',
 		logs TEXT NOT NULL DEFAULT '',
 		ai_process_pid INTEGER NOT NULL DEFAULT 0,
-		started_at DATETIME,
-		completed_at DATETIME,
+		started_at   DATETIME DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+		completed_at DATETIME DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
 		FOREIGN KEY (worker_id) REFERENCES workers(id) ON DELETE CASCADE
 	);
 
@@ -68,7 +68,7 @@ func migrate(db *sql.DB) error {
 		merged_into  TEXT NOT NULL DEFAULT '',
 		execution_id TEXT NOT NULL DEFAULT '',
 		session_id   TEXT NOT NULL DEFAULT '',
-		received_at     DATETIME NOT NULL DEFAULT (datetime('now')),
+		received_at     DATETIME NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
 		processed_at    DATETIME,
 		platform_msg_id TEXT NOT NULL DEFAULT ''
 	);
