@@ -296,6 +296,27 @@ func TestMessageStore_Create_Dedup_EmptyPlatformMsgIDNotDeduped(t *testing.T) {
 	}
 }
 
+func TestMessageStore_MarkTerminal_ProcessedAtMillisecondPrecision(t *testing.T) {
+	s := setupMessageStore(t)
+	ctx := context.Background()
+
+	s.Create(ctx, "msg-1", "feishu:chat1:userA", "feishu", "hello", "", "") //nolint
+	if err := s.MarkTerminal(ctx, []string{"msg-1"}, "done"); err != nil {
+		t.Fatalf("MarkTerminal: %v", err)
+	}
+
+	var processedAt string
+	err := s.db.QueryRowContext(ctx,
+		`SELECT processed_at FROM platform_messages WHERE id = ?`, "msg-1",
+	).Scan(&processedAt)
+	if err != nil {
+		t.Fatalf("scan processed_at: %v", err)
+	}
+	if len(processedAt) < 24 || processedAt[19] != '.' || processedAt[len(processedAt)-1] != 'Z' {
+		t.Errorf("processed_at %q: want millisecond format like 2026-03-11T10:30:00.123Z", processedAt)
+	}
+}
+
 func TestMessageStore_Create_ReceivedAtMillisecondPrecision(t *testing.T) {
 	s := setupMessageStore(t)
 	ctx := context.Background()

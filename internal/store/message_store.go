@@ -103,13 +103,14 @@ func (s *MessageStore) MarkTerminal(ctx context.Context, ids []string, status st
 	}
 	placeholders := strings.Repeat("?,", len(ids))
 	placeholders = placeholders[:len(placeholders)-1]
-	args := make([]any, 0, len(ids)+1)
-	args = append(args, status)
+	now := time.Now().UTC().Format("2006-01-02T15:04:05.000Z")
+	args := make([]any, 0, len(ids)+2)
+	args = append(args, status, now) // status=?, processed_at=?
 	for _, id := range ids {
 		args = append(args, id)
 	}
 	_, err := s.db.ExecContext(ctx,
-		fmt.Sprintf(`UPDATE platform_messages SET status = ?, processed_at = datetime('now') WHERE id IN (%s)`, placeholders),
+		fmt.Sprintf(`UPDATE platform_messages SET status = ?, processed_at = ? WHERE id IN (%s)`, placeholders),
 		args...,
 	)
 	return err
