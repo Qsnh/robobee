@@ -46,9 +46,7 @@ export function WorkerDetail() {
       map.set(e.session_id, group)
     }
     return Array.from(map.values()).sort((a, b) => {
-      const aTime = a[0].started_at ?? ""
-      const bTime = b[0].started_at ?? ""
-      return bTime.localeCompare(aTime)
+      return (b[0].started_at ?? 0) - (a[0].started_at ?? 0)
     })
   }, [executions])
 

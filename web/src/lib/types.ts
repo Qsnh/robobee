@@ -11,8 +11,8 @@ export interface Worker {
   schedule_description?: string
   schedule_enabled: boolean
   status: WorkerStatus
-  created_at: string
-  updated_at: string
+  created_at: number
+  updated_at: number
 }
 
 export interface WorkerExecution {
@@ -24,6 +24,6 @@ export interface WorkerExecution {
   result: string
   logs: string | null
   ai_process_pid: number
-  started_at: string | null
-  completed_at: string | null
+  started_at: number | null
+  completed_at: number | null
 }
