@@ -28,9 +28,18 @@ func (r *Router) Route(ctx context.Context, message string) (string, error) {
 	}
 
 	summaries := make([]ai.WorkerSummary, len(workers))
+	validIDs := make(map[string]bool, len(workers))
 	for i, w := range workers {
 		summaries[i] = ai.WorkerSummary{ID: w.ID, Name: w.Name, Description: w.Description}
+		validIDs[w.ID] = true
 	}
 
-	return r.router.RouteToWorker(ctx, message, summaries)
+	workerID, err := r.router.RouteToWorker(ctx, message, summaries)
+	if err != nil {
+		return "", err
+	}
+	if !validIDs[workerID] {
+		return "", fmt.Errorf("worker %q not found", workerID)
+	}
+	return workerID, nil
 }
