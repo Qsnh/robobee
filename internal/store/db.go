@@ -102,6 +102,41 @@ var migrations = []migration{
 		name:    "20260312000001_migrate_debouncing_to_failed",
 		sql:     `UPDATE platform_messages SET status = 'failed' WHERE status = 'debouncing'`,
 	},
+	{
+		version: 11,
+		name:    "20260312000002_workers_drop_schedule_index",
+		sql:     `DROP INDEX IF EXISTS idx_workers_schedule`,
+	},
+	{
+		version: 12,
+		name:    "20260312000003_workers_create_new",
+		sql: `CREATE TABLE workers_new (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        work_dir TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'idle',
+        description TEXT NOT NULL DEFAULT '',
+        prompt TEXT NOT NULL DEFAULT '',
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+    )`,
+	},
+	{
+		version: 13,
+		name:    "20260312000004_workers_copy_data",
+		sql: `INSERT INTO workers_new (id, name, work_dir, status, description, prompt, created_at, updated_at)
+          SELECT id, name, work_dir, status, description, prompt, created_at, updated_at FROM workers`,
+	},
+	{
+		version: 14,
+		name:    "20260312000005_workers_drop_old",
+		sql:     `DROP TABLE workers`,
+	},
+	{
+		version: 15,
+		name:    "20260312000006_workers_rename",
+		sql:     `ALTER TABLE workers_new RENAME TO workers`,
+	},
 }
 
 func InitDB(dbPath string) (*sql.DB, error) {

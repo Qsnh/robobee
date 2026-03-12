@@ -14,9 +14,6 @@ type Worker struct {
 	Description         string       `json:"description" db:"description"`
 	Prompt              string       `json:"prompt" db:"prompt"`
 	WorkDir             string       `json:"work_dir" db:"work_dir"`
-	CronExpression      string       `json:"cron_expression,omitempty" db:"cron_expression"`
-	ScheduleDescription string       `json:"schedule_description,omitempty" db:"schedule_description"`
-	ScheduleEnabled     bool         `json:"schedule_enabled" db:"schedule_enabled"`
 	Status              WorkerStatus `json:"status" db:"status"`
 	CreatedAt           int64        `json:"created_at" db:"created_at"`
 	UpdatedAt           int64        `json:"updated_at" db:"updated_at"`
