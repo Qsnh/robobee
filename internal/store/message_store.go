@@ -21,12 +21,22 @@ func NewMessageStore(db *sql.DB) *MessageStore {
 }
 
 // Create inserts a new message record with status "received".
-func (s *MessageStore) Create(ctx context.Context, id, sessionKey, platform, content, raw string) error {
-	_, err := s.db.ExecContext(ctx,
-		`INSERT INTO platform_messages (id, session_key, platform, content, raw) VALUES (?, ?, ?, ?, ?)`,
-		id, sessionKey, platform, content, raw,
+// Returns inserted=false (no error) when platform_msg_id is non-empty and already exists.
+// If platform_msg_id is empty, the insert always proceeds (no dedup).
+func (s *MessageStore) Create(ctx context.Context, id, sessionKey, platform, content, raw, platformMsgID string) (bool, error) {
+	result, err := s.db.ExecContext(ctx,
+		`INSERT OR IGNORE INTO platform_messages (id, session_key, platform, content, raw, platform_msg_id)
+		 VALUES (?, ?, ?, ?, ?, ?)`,
+		id, sessionKey, platform, content, raw, platformMsgID,
 	)
-	return err
+	if err != nil {
+		return false, err
+	}
+	n, err := result.RowsAffected()
+	if err != nil {
+		return false, err
+	}
+	return n == 1, nil
 }
 
 // SetWorkerID sets the worker_id and advances status to "routed".
