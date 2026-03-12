@@ -62,8 +62,7 @@ func (r *DingTalkReceiver) Start(ctx context.Context, dispatch func(platform.Inb
 			SenderID:          data.SenderStaffId,
 			SessionKey:        "dingtalk:" + data.ConversationId + ":" + data.SenderStaffId,
 			Content:           text,
-			RawContent:        rawContent,
-			Raw:               data,
+			Raw:               rawContent,
 			PlatformMessageID: data.MsgId,
 			MessageTime:       data.CreateAt, // int64 Unix ms per DingTalk open platform docs
 		}
@@ -82,9 +81,9 @@ type DingTalkSender struct{}
 const markdownTitle = "RoboBee"
 
 func (s *DingTalkSender) Send(ctx context.Context, msg platform.OutboundMessage) error {
-	data, ok := msg.ReplyTo.Raw.(*chatbot.BotCallbackDataModel)
-	if !ok {
-		log.Printf("dingtalk: sender: unexpected raw type %T", msg.ReplyTo.Raw)
+	var data chatbot.BotCallbackDataModel
+	if err := json.Unmarshal([]byte(msg.ReplyTo.Raw), &data); err != nil {
+		log.Printf("dingtalk: sender: failed to unmarshal raw: %v", err)
 		return nil
 	}
 	replier := chatbot.NewChatbotReplier()
@@ -97,6 +96,6 @@ func (s *DingTalkSender) Send(ctx context.Context, msg platform.OutboundMessage)
 	return nil
 }
 
-var _ platform.Platform                = (*DingTalkPlatform)(nil)
+var _ platform.Platform = (*DingTalkPlatform)(nil)
 var _ platform.PlatformReceiverAdapter = (*DingTalkReceiver)(nil)
-var _ platform.PlatformSenderAdapter   = (*DingTalkSender)(nil)
+var _ platform.PlatformSenderAdapter = (*DingTalkSender)(nil)

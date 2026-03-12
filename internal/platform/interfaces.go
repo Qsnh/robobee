@@ -11,7 +11,7 @@ type InboundMessage struct {
 	SessionKey        string // platform-prefixed session key, e.g. "feishu:chatID:userID"
 	Content           string
 	RawContent        string // original message text with formatting preserved (at-tags, markup)
-	Raw               any    // original platform event, used by the sender for reply metadata
+	Raw               string // original platform event, used by the sender for reply metadata
 	PlatformMessageID string // platform-native dedup ID; empty string means no dedup
 	MessageTime       int64  // Unix milliseconds from platform; 0 = unknown (fallback to server time)
 }

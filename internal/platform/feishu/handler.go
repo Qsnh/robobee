@@ -78,13 +78,17 @@ func (r *FeishuReceiver) Start(ctx context.Context, dispatch func(platform.Inbou
 				return nil
 			}
 			senderID := *sender.SenderId.OpenId
+			rawBytes, err := json.Marshal(event)
+			if err != nil {
+				log.Printf("feishu: failed to marshal event: %v", err)
+				return nil
+			}
 			dispatch(platform.InboundMessage{
 				Platform:          "feishu",
 				SenderID:          senderID,
 				SessionKey:        "feishu:" + *msg.ChatId + ":" + senderID,
 				Content:           text,
-				RawContent:        *msg.Content,
-				Raw:               event,
+				Raw:               string(rawBytes),
 				PlatformMessageID: feishuMsgID(msg.MessageId),
 				MessageTime:       parseMillis(msg.CreateTime),
 			})
@@ -106,9 +110,9 @@ type FeishuSender struct {
 }
 
 func (s *FeishuSender) Send(ctx context.Context, msg platform.OutboundMessage) error {
-	event, ok := msg.ReplyTo.Raw.(*larkim.P2MessageReceiveV1)
-	if !ok {
-		log.Printf("feishu: sender: unexpected raw type %T", msg.ReplyTo.Raw)
+	var event larkim.P2MessageReceiveV1
+	if err := json.Unmarshal([]byte(msg.ReplyTo.Raw), &event); err != nil {
+		log.Printf("feishu: sender: failed to unmarshal raw: %v", err)
 		return nil
 	}
 	imMsg := event.Event.Message
