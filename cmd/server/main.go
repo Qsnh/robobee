@@ -12,9 +12,13 @@ import (
 	"github.com/robobee/core/internal/api"
 	"github.com/robobee/core/internal/botrouter"
 	"github.com/robobee/core/internal/config"
+	"github.com/robobee/core/internal/dispatcher"
+	"github.com/robobee/core/internal/msgingest"
+	"github.com/robobee/core/internal/msgrouter"
+	"github.com/robobee/core/internal/msgsender"
+	"github.com/robobee/core/internal/platform"
 	"github.com/robobee/core/internal/platform/dingtalk"
 	"github.com/robobee/core/internal/platform/feishu"
-	"github.com/robobee/core/internal/platform"
 	"github.com/robobee/core/internal/scheduler"
 	"github.com/robobee/core/internal/store"
 	"github.com/robobee/core/internal/worker"
@@ -58,24 +62,33 @@ func main() {
 		log.Printf("scheduler start error: %v", err)
 	}
 
-	// Build shared pipeline
-	router := botrouter.NewRouter(aiClient, workerStore)
-	pipe := platform.NewPipeline(router, msgStore, mgr)
-	platManager := platform.NewManager(pipe, msgStore, cfg.MessageQueue.DebounceWindow)
-
-	// Register enabled platforms
-	if cfg.Feishu.Enabled {
-		platManager.Register(feishu.NewPlatform(cfg.Feishu))
-	}
-	if cfg.DingTalk.Enabled {
-		platManager.Register(dingtalk.NewPlatform(cfg.DingTalk))
-	}
-
 	// Graceful shutdown context
 	ctx, cancel := context.WithCancel(context.Background())
 
-	// Start all platforms
-	go platManager.StartAll(ctx)
+	// Build four-layer message pipeline
+	sendersByPlatform := make(map[string]platform.PlatformSenderAdapter)
+
+	ingest := msgingest.New(msgStore, cfg.MessageQueue.DebounceWindow)
+	router := msgrouter.New(botrouter.NewRouter(aiClient, workerStore), ingest.Out())
+	disp := dispatcher.New(mgr, msgStore, router.Out())
+	sender := msgsender.New(sendersByPlatform, disp.Out())
+
+	go ingest.Run(ctx)
+	go router.Run(ctx)
+	go disp.Run(ctx)
+	go sender.Run(ctx)
+
+	// Register enabled platforms
+	if cfg.Feishu.Enabled {
+		p := feishu.NewPlatform(cfg.Feishu)
+		sendersByPlatform[p.ID()] = p.Sender()
+		go p.Receiver().Start(ctx, ingest.Dispatch)
+	}
+	if cfg.DingTalk.Enabled {
+		p := dingtalk.NewPlatform(cfg.DingTalk)
+		sendersByPlatform[p.ID()] = p.Sender()
+		go p.Receiver().Start(ctx, ingest.Dispatch)
+	}
 
 	// Start HTTP API
 	srv := api.NewServer(workerStore, execStore, mgr, sched)
