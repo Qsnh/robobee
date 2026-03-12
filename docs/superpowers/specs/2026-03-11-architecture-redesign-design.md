@@ -132,8 +132,9 @@ func (g *Gateway) Out() <-chan IngestedMessage
 **Responsibilities:**
 
 - Deduplication via `msgStore.Create` (INSERT OR IGNORE); drop duplicate platform messages silently before doing anything else.
-- Normal messages: accumulate within debounce window per session key, reset timer on each new message, merge content with `\n\n---\n\n` separator. When the debounce timer fires, persist the merged message (primary ID = last message in batch), then push one `IngestedMessage` to `out`. A command message arriving during an active debounce window immediately cancels that window: the accumulated normal messages are dropped (marked failed in DB), and the command is processed on its own.
-- Command messages (e.g. `clear`): skip debounce, persist immediately, push `IngestedMessage{Command: CommandClear}` to `out`.
+- Normal messages: accumulate within debounce window per session key, reset timer on each new message, merge content with `\n\n---\n\n` separator. When the debounce timer fires, persist the merged message (primary ID = last message in batch), then push one `IngestedMessage` to `out`.
+- Command messages (e.g. `clear`): **all** command messages interrupt any active debounce window for the same session. `msgingest` itself stops the debounce timer, marks all accumulated-but-not-yet-pushed normal messages as failed in DB, then persists and pushes the command as `IngestedMessage{Command: …}` to `out`. This cancellation is handled entirely within Layer 1 — there is no back-reference from downstream layers. Each accumulated normal message has already been persisted individually by dedup; marking them failed here is a status update only, no orphaned rows.
+- Debouncing messages that were not yet merged when the process shut down are in `debouncing` status. `msgStore.GetUnfinished()` returns them; the dispatcher recovers them as normal pending messages on startup.
 - Does **not** send ACK. Does **not** route.
 
 **Primary message ID:** the last `MsgID` in the debounce batch is used as the primary tracking ID (consistent with current `session_queue.go:80`).
@@ -180,12 +181,12 @@ func (d *Dispatcher) Out() <-chan SenderEvent
 - On receiving `RoutedMessage`:
   - If `RouteErr` is set: emit `SenderEvent{SenderEventError, Content: routeErrMsg}` and return.
   - If `Command == CommandClear`: mark all pending+debouncing messages for the session as failed in DB, clear the session state, emit `SenderEvent{SenderEventResult, Content: "✅ 上下文已重置"}`.
-  - Otherwise: enqueue under `queueKey(sessionKey, workerID)`. Emit `SenderEvent{SenderEventACK}` immediately. If the queue was idle, fire execution immediately; otherwise add to pending queue.
+  - Otherwise: enqueue under `queueKey(sessionKey, workerID)`. Emit `SenderEvent{SenderEventACK}` immediately upon enqueue (before execution starts, even if the message goes into pending queue). If the queue was idle, also fire execution immediately in a background goroutine; otherwise add to pending queue.
 - **Serialization rule:** same `queueKey` → at most one active execution at a time. Different queue keys (different sessions or different workers) run concurrently.
 - Async execution: a background goroutine calls `manager.ExecuteWorker` or `manager.ReplyExecution`, then polls `manager.GetExecution` until terminal status (existing `waitForResult` logic). On completion, sends to internal `results` channel.
 - On internal result arrival: emit `SenderEvent{SenderEventResult, …}`. If the queue has pending messages, fire the next one immediately.
 - **Startup recovery:** call `msgStore.GetUnfinished()` at startup. Clear sentinel rows (no worker_id, status `clear`) are not returned by `GetUnfinished` and are not replayed. Only rows with a valid `worker_id` and status `executing`/`debouncing`/`pending` are recovered.
-- **Graceful shutdown:** when `ctx` is cancelled, the event loop exits. In-flight async execution goroutines run to completion (they use `context.Background()` internally, consistent with current behavior); their results are silently dropped after shutdown.
+- **Graceful shutdown:** when `ctx` is cancelled, the event loop exits. In-flight async execution goroutines run to completion (they use `context.Background()` internally, consistent with current behavior); their results are silently dropped after shutdown. This is not a regression — the current system has identical behavior. In-flight executions are recoverable on next startup via `GetUnfinished()`.
 
 **ACK behavior change from current:** the old code sent ACK only for the first message when no session was active. The new design sends ACK for every debounced batch that enters the queue (including messages that arrive while a session is executing and are added to the pending queue). This is intentional — it confirms the message has been accepted for processing.
 
