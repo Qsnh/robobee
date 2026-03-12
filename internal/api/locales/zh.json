@@ -4,14 +4,5 @@
   },
   "ExecutionNotFound": {
     "other": "未找到执行记录"
-  },
-  "ScheduleDescriptionRequired": {
-    "other": "启用定时时必须填写 schedule_description"
-  },
-  "PromptRequired": {
-    "other": "启用定时时必须填写 prompt"
-  },
-  "FailedToGenerateCronExpression": {
-    "other": "生成 cron 表达式失败：{{.Error}}"
   }
 }

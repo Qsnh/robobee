@@ -15,7 +15,7 @@ const (
 )
 
 // ClaudeCodeClient runs the claude CLI binary for one-shot text queries.
-// It implements WorkerRouter and CronResolver.
+// It implements WorkerRouter.
 type ClaudeCodeClient struct {
 	binary string
 }
@@ -92,19 +92,3 @@ func (c *ClaudeCodeClient) RouteToWorker(ctx context.Context, message string, wo
 	return workerID, nil
 }
 
-// CronFromDescription implements CronResolver.
-func (c *ClaudeCodeClient) CronFromDescription(ctx context.Context, description string) (string, error) {
-	prompt := fmt.Sprintf(
-		"You are a cron expression generator. Convert the schedule description to a valid 5-field cron expression (minute hour day month weekday). Return ONLY the cron expression, nothing else. No explanations, no markdown.\n\n%s",
-		description,
-	)
-
-	cron, err := c.run(ctx, prompt)
-	if err != nil {
-		return "", err
-	}
-	if cron == "" {
-		return "", fmt.Errorf("claude returned empty cron expression")
-	}
-	return cron, nil
-}
