@@ -27,8 +27,8 @@ var migrations = []migration{
 		schedule_description TEXT NOT NULL DEFAULT '',
 		description TEXT NOT NULL DEFAULT '',
 		prompt TEXT NOT NULL DEFAULT '',
-		created_at DATETIME NOT NULL DEFAULT (datetime('now')),
-		updated_at DATETIME NOT NULL DEFAULT (datetime('now'))
+		created_at INTEGER NOT NULL,
+		updated_at INTEGER NOT NULL
 	)`,
 	},
 	{
@@ -43,8 +43,8 @@ var migrations = []migration{
 		trigger_input TEXT NOT NULL DEFAULT '',
 		result TEXT NOT NULL DEFAULT '',
 		logs TEXT NOT NULL DEFAULT '',
-		started_at   DATETIME DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
-		completed_at DATETIME DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+		started_at   INTEGER,
+		completed_at INTEGER,
 		FOREIGN KEY (worker_id) REFERENCES workers(id) ON DELETE CASCADE
 	)`,
 	},
@@ -63,8 +63,8 @@ var migrations = []migration{
 		merged_into  TEXT NOT NULL DEFAULT '',
 		platform_msg_id TEXT NOT NULL DEFAULT '',
 		raw          TEXT NOT NULL DEFAULT '',
-		received_at     DATETIME NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
-		processed_at    DATETIME
+		received_at     INTEGER NOT NULL,
+		processed_at    INTEGER
 	)`,
 	},
 	{

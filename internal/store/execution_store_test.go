@@ -77,17 +77,15 @@ func TestExecutionStore_Create_StartedAtMillisecondPrecision(t *testing.T) {
 		t.Fatalf("Create: %v", err)
 	}
 
-	// Verify the raw DB value has millisecond precision
-	var startedAt string
+	var startedAt int64
 	err = db.QueryRow(`SELECT started_at FROM worker_executions WHERE id = ?`, exec.ID).Scan(&startedAt)
 	if err != nil {
 		t.Fatalf("scan started_at: %v", err)
 	}
-	if len(startedAt) < 24 || startedAt[19] != '.' || startedAt[len(startedAt)-1] != 'Z' {
-		t.Errorf("started_at %q: want millisecond format like 2026-03-11T10:30:00.123Z", startedAt)
+	if startedAt <= 0 {
+		t.Errorf("started_at %d: want positive Unix millisecond timestamp", startedAt)
 	}
 
-	// Verify the returned struct still has a valid *time.Time
 	if exec.StartedAt == nil {
 		t.Error("exec.StartedAt must not be nil")
 	}
@@ -110,13 +108,13 @@ func TestExecutionStore_UpdateResult_CompletedAtMillisecondPrecision(t *testing.
 		t.Fatalf("UpdateResult: %v", err)
 	}
 
-	var completedAt string
+	var completedAt int64
 	err = db.QueryRow(`SELECT completed_at FROM worker_executions WHERE id = ?`, exec.ID).Scan(&completedAt)
 	if err != nil {
 		t.Fatalf("scan completed_at: %v", err)
 	}
-	if len(completedAt) < 24 || completedAt[19] != '.' || completedAt[len(completedAt)-1] != 'Z' {
-		t.Errorf("completed_at %q: want millisecond format like 2026-03-11T10:30:00.123Z", completedAt)
+	if completedAt <= 0 {
+		t.Errorf("completed_at %d: want positive Unix millisecond timestamp", completedAt)
 	}
 }
 

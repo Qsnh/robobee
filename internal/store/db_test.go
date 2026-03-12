@@ -33,7 +33,7 @@ func TestInitDB_PlatformMessagesTable(t *testing.T) {
 	}
 	defer db.Close()
 
-	_, err = db.Exec(`INSERT INTO platform_messages (id, session_key, platform, content) VALUES ('x','sk','p','c')`)
+	_, err = db.Exec(`INSERT INTO platform_messages (id, session_key, platform, content, received_at) VALUES ('x','sk','p','c',1)`)
 	if err != nil {
 		t.Fatalf("platform_messages table not created: %v", err)
 	}

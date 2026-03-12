@@ -29,7 +29,7 @@ func (s *MessageStore) Create(ctx context.Context, id, sessionKey, platform, con
 		`INSERT OR IGNORE INTO platform_messages (id, session_key, platform, content, raw, platform_msg_id, received_at)
 		 VALUES (?, ?, ?, ?, ?, ?, ?)`,
 		id, sessionKey, platform, content, raw, platformMsgID,
-		time.Now().UTC().Format("2006-01-02T15:04:05.000Z"),
+		time.Now().UnixMilli(),
 	)
 	if err != nil {
 		return false, err
@@ -103,9 +103,8 @@ func (s *MessageStore) MarkTerminal(ctx context.Context, ids []string, status st
 	}
 	placeholders := strings.Repeat("?,", len(ids))
 	placeholders = placeholders[:len(placeholders)-1]
-	now := time.Now().UTC().Format("2006-01-02T15:04:05.000Z")
 	args := make([]any, 0, len(ids)+2)
-	args = append(args, status, now) // status=?, processed_at=?
+	args = append(args, status, time.Now().UnixMilli()) // status=?, processed_at=?
 	for _, id := range ids {
 		args = append(args, id)
 	}
@@ -183,8 +182,8 @@ func (s *MessageStore) SetExecution(ctx context.Context, msgID, executionID, ses
 // InsertClearSentinel inserts a 'clear' sentinel row to mark the session as reset.
 func (s *MessageStore) InsertClearSentinel(ctx context.Context, id, sessionKey, plt string) error {
 	_, err := s.db.ExecContext(ctx,
-		`INSERT INTO platform_messages (id, session_key, platform, content, status)
-		 VALUES (?, ?, ?, '', 'clear')`,
-		id, sessionKey, plt)
+		`INSERT INTO platform_messages (id, session_key, platform, content, status, received_at)
+		 VALUES (?, ?, ?, '', 'clear', ?)`,
+		id, sessionKey, plt, time.Now().UnixMilli())
 	return err
 }

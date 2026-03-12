@@ -22,7 +22,7 @@ func (s *WorkerStore) Create(w model.Worker) (model.Worker, error) {
 		w.ID = uuid.New().String()
 	}
 	w.Status = model.WorkerStatusIdle
-	w.CreatedAt = time.Now().UTC()
+	w.CreatedAt = time.Now().UnixMilli()
 	w.UpdatedAt = w.CreatedAt
 
 	_, err := s.db.Exec(
@@ -101,7 +101,7 @@ func (s *WorkerStore) ListScheduledWorkers() ([]model.Worker, error) {
 }
 
 func (s *WorkerStore) Update(w model.Worker) (model.Worker, error) {
-	w.UpdatedAt = time.Now().UTC()
+	w.UpdatedAt = time.Now().UnixMilli()
 	_, err := s.db.Exec(
 		`UPDATE workers SET name=?, description=?, prompt=?, work_dir=?,
 		 cron_expression=?, schedule_description=?, schedule_enabled=?, status=?, updated_at=?
@@ -117,7 +117,7 @@ func (s *WorkerStore) Update(w model.Worker) (model.Worker, error) {
 }
 
 func (s *WorkerStore) UpdateStatus(id string, status model.WorkerStatus) error {
-	_, err := s.db.Exec(`UPDATE workers SET status=?, updated_at=? WHERE id=?`, status, time.Now().UTC(), id)
+	_, err := s.db.Exec(`UPDATE workers SET status=?, updated_at=? WHERE id=?`, status, time.Now().UnixMilli(), id)
 	return err
 }
 
