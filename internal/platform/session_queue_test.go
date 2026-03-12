@@ -16,7 +16,9 @@ type stubMessageStore struct {
 	updates []string
 }
 
-func (s *stubMessageStore) Create(_ context.Context, _, _, _, _, _ string) error { return nil }
+func (s *stubMessageStore) Create(_ context.Context, _, _, _, _, _, _ string) (bool, error) {
+	return true, nil
+}
 func (s *stubMessageStore) SetWorkerID(_ context.Context, _, _ string) error  { return nil }
 func (s *stubMessageStore) SetStatus(_ context.Context, _, _ string) error    { return nil }
 func (s *stubMessageStore) UpdateStatusBatch(_ context.Context, ids []string, status string) error {

@@ -8,12 +8,13 @@ import (
 
 // InboundMessage carries a parsed message from any platform.
 type InboundMessage struct {
-	Platform   string // "feishu" | "dingtalk"
-	SenderID   string
-	SessionKey string // platform-prefixed session key, e.g. "feishu:chatID:userID"
-	Content    string
-	RawContent string // original message text with formatting preserved (at-tags, markup)
-	Raw        any    // original platform event, used by the sender for reply metadata
+	Platform          string // "feishu" | "dingtalk"
+	SenderID          string
+	SessionKey        string // platform-prefixed session key, e.g. "feishu:chatID:userID"
+	Content           string
+	RawContent        string // original message text with formatting preserved (at-tags, markup)
+	Raw               any    // original platform event, used by the sender for reply metadata
+	PlatformMessageID string // platform-native dedup ID; empty string means no dedup
 }
 
 // OutboundMessage carries a reply to send back on a platform.
@@ -52,7 +53,7 @@ type Session struct {
 // MessageStore is the subset of store.MessageStore operations used by the queue and pipeline.
 // The concrete implementation is *store.MessageStore.
 type MessageStore interface {
-	Create(ctx context.Context, id, sessionKey, platform, content, raw string) error
+	Create(ctx context.Context, id, sessionKey, platform, content, raw, platformMsgID string) (bool, error)
 	SetWorkerID(ctx context.Context, id, workerID string) error
 	SetStatus(ctx context.Context, id, status string) error
 	UpdateStatusBatch(ctx context.Context, ids []string, status string) error

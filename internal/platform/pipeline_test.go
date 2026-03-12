@@ -34,7 +34,9 @@ func newStubPipelineStore() *stubPipelineStore {
 	}
 }
 
-func (s *stubPipelineStore) Create(_ context.Context, _, _, _, _, _ string) error { return nil }
+func (s *stubPipelineStore) Create(_ context.Context, _, _, _, _, _, _ string) (bool, error) {
+	return true, nil
+}
 func (s *stubPipelineStore) SetWorkerID(_ context.Context, _, _ string) error   { return nil }
 func (s *stubPipelineStore) SetStatus(_ context.Context, _, _ string) error     { return nil }
 func (s *stubPipelineStore) UpdateStatusBatch(_ context.Context, _ []string, _ string) error {
