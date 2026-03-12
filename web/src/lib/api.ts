@@ -31,8 +31,6 @@ export const api = {
       name: string
       description: string
       prompt?: string
-      schedule_description?: string
-      schedule_enabled?: boolean
       work_dir?: string
     }) => fetchAPI<Worker>("/workers", { method: "POST", body: JSON.stringify(data) }),
     update: (id: string, data: Partial<Worker>) =>

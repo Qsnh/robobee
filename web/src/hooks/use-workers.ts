@@ -22,8 +22,6 @@ export function useCreateWorker() {
       name: string
       description: string
       prompt?: string
-      schedule_description?: string
-      schedule_enabled?: boolean
       work_dir?: string
     }) => api.workers.create(data),
     onSuccess: () => {
