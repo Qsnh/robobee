@@ -65,6 +65,7 @@ func (r *DingTalkReceiver) Start(ctx context.Context, dispatch func(platform.Inb
 			RawContent:        rawContent,
 			Raw:               data,
 			PlatformMessageID: data.MsgId,
+			MessageTime:       data.CreateAt, // int64 Unix ms per DingTalk open platform docs
 		}
 		dispatch(msg)
 		log.Printf("dingtalk: dispatched message sessionKey=%s", msg.SessionKey)
