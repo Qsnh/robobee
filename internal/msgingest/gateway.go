@@ -9,6 +9,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/robobee/core/internal/platform"
+	"github.com/robobee/core/internal/store"
 )
 
 const mergedSeparator = "\n\n---\n\n"
@@ -33,18 +34,14 @@ type IngestedMessage struct {
 
 // MessageStore is the subset of store.MessageStore used by msgingest.
 type MessageStore interface {
-	Create(ctx context.Context, id, sessionKey, platform, content, raw, platformMsgID string, messageTime int64) (bool, error)
-	UpdateStatusBatch(ctx context.Context, ids []string, status string) error
-	MarkTerminal(ctx context.Context, ids []string, status string) error
-	MarkMerged(ctx context.Context, primaryID string, mergedIDs []string) error
+	CreateBatch(ctx context.Context, msgs []store.BatchMsg) (int64, error)
 }
 
 type debounceState struct {
 	timer      *time.Timer
 	generation int
-	ids        []string
-	content    string
-	replyTo    platform.InboundMessage
+	msgs       []platform.InboundMessage // full message bodies, arrival order
+	content    string                    // merged content string
 }
 
 // Gateway receives raw platform messages, deduplicates, debounces, and emits IngestedMessages.
@@ -52,6 +49,7 @@ type Gateway struct {
 	msgStore MessageStore
 	debounce time.Duration
 	sessions map[string]*debounceState
+	seen     map[string]struct{} // in-memory dedup set keyed by platform_msg_id
 	mu       sync.Mutex
 	out      chan IngestedMessage
 }
@@ -62,6 +60,7 @@ func New(msgStore MessageStore, debounce time.Duration) *Gateway {
 		msgStore: msgStore,
 		debounce: debounce,
 		sessions: make(map[string]*debounceState),
+		seen:     make(map[string]struct{}),
 		out:      make(chan IngestedMessage, 64),
 	}
 }
@@ -69,7 +68,7 @@ func New(msgStore MessageStore, debounce time.Duration) *Gateway {
 // Out returns the channel of outgoing IngestedMessages.
 func (g *Gateway) Out() <-chan IngestedMessage { return g.out }
 
-// Run blocks until ctx is cancelled, then closes Out(). msgingest is driven by Dispatch() calls.
+// Run blocks until ctx is cancelled, then closes Out().
 func (g *Gateway) Run(ctx context.Context) {
 	<-ctx.Done()
 	close(g.out)
@@ -85,44 +84,28 @@ func (g *Gateway) emit(msg IngestedMessage) {
 }
 
 // Dispatch is called by a platform receiver for each inbound message.
+// All seen-map and debounce-state mutations are protected by g.mu.
 func (g *Gateway) Dispatch(msg platform.InboundMessage) {
-	msgID := uuid.New().String()
-	inserted, err := g.msgStore.Create(context.Background(), msgID, msg.SessionKey, msg.Platform, msg.Content, msg.RawContent, msg.PlatformMessageID, msg.MessageTime)
-	if err != nil {
-		log.Printf("msgingest: store error: %v", err)
-		return
-	}
-	if !inserted {
-		log.Printf("msgingest: duplicate dropped platformMsgID=%s", msg.PlatformMessageID)
-		return
-	}
-
-	if cmd := detectCommand(msg.Content); cmd != CommandNone {
-		g.handleCommand(msgID, msg, cmd)
-		return
-	}
-
-	// Resolve effective message time; zero means unknown, treat as now (never historical).
-	msgTime := msg.MessageTime
-	if msgTime == 0 {
-		msgTime = time.Now().UnixMilli()
-	}
-
-	// Historical message: age exceeds debounce window → skip debounce, emit immediately.
-	if time.Now().UnixMilli()-msgTime > g.debounce.Milliseconds() {
-		g.emit(IngestedMessage{
-			MsgID:      msgID,
-			SessionKey: msg.SessionKey,
-			Platform:   msg.Platform,
-			Content:    msg.Content,
-			ReplyTo:    msg,
-			Command:    CommandNone,
-		})
-		return
-	}
-
 	g.mu.Lock()
 
+	// In-memory dedup: drop if platform_msg_id already seen this process lifetime.
+	if msg.PlatformMessageID != "" {
+		if _, dup := g.seen[msg.PlatformMessageID]; dup {
+			g.mu.Unlock()
+			log.Printf("msgingest: duplicate dropped platformMsgID=%s", msg.PlatformMessageID)
+			return
+		}
+		g.seen[msg.PlatformMessageID] = struct{}{}
+	}
+
+	// Command detection: release lock, then handle command.
+	if cmd := detectCommand(msg.Content); cmd != CommandNone {
+		g.mu.Unlock()
+		g.handleCommand(msg, cmd)
+		return
+	}
+
+	// Accumulate into debounce state.
 	state, ok := g.sessions[msg.SessionKey]
 	if !ok {
 		state = &debounceState{}
@@ -134,11 +117,7 @@ func (g *Gateway) Dispatch(msg platform.InboundMessage) {
 	} else {
 		state.content = state.content + mergedSeparator + msg.Content
 	}
-	state.ids = append(state.ids, msgID)
-	state.replyTo = msg
-
-	ids := make([]string, len(state.ids))
-	copy(ids, state.ids)
+	state.msgs = append(state.msgs, msg)
 
 	if state.timer != nil {
 		state.timer.Stop()
@@ -149,25 +128,51 @@ func (g *Gateway) Dispatch(msg platform.InboundMessage) {
 	state.timer = time.AfterFunc(g.debounce, func() { g.onDebounce(sessionKey, gen) })
 
 	g.mu.Unlock()
-
-	g.msgStore.UpdateStatusBatch(context.Background(), ids, "debouncing") //nolint:errcheck
 }
 
-func (g *Gateway) handleCommand(msgID string, msg platform.InboundMessage, cmd CommandType) {
+// handleCommand cancels any active debounce for the session (discarding pending
+// normal messages without writing them to DB), writes the command message to DB,
+// then emits the command IngestedMessage.
+//
+// Known accepted race: between Dispatch releasing the lock and this function
+// reacquiring it, another concurrent Dispatch for the same session could
+// accumulate a new message. That message is silently discarded here. This race
+// exists in the original codebase and is accepted — a simultaneous clear and
+// normal message is an edge case with no meaningful expected outcome.
+func (g *Gateway) handleCommand(msg platform.InboundMessage, cmd CommandType) {
 	g.mu.Lock()
 	if state, ok := g.sessions[msg.SessionKey]; ok {
 		if state.timer != nil {
 			state.timer.Stop()
 		}
-		if len(state.ids) > 0 {
-			g.msgStore.MarkTerminal(context.Background(), state.ids, "failed") //nolint:errcheck
-		}
 		delete(g.sessions, msg.SessionKey)
 	}
 	g.mu.Unlock()
 
+	mt := msg.MessageTime
+	if mt == 0 {
+		mt = time.Now().UnixMilli()
+	}
+	batch := []store.BatchMsg{{
+		ID:            uuid.New().String(),
+		SessionKey:    msg.SessionKey,
+		Platform:      msg.Platform,
+		Content:       msg.Content,
+		Raw:           msg.RawContent,
+		PlatformMsgID: msg.PlatformMessageID,
+		MessageTime:   mt,
+		Status:        "received",
+		MergedInto:    "",
+	}}
+	cmdID := batch[0].ID
+
+	if _, err := g.msgStore.CreateBatch(context.Background(), batch); err != nil {
+		log.Printf("msgingest: CreateBatch error for command sessionKey=%s: %v", msg.SessionKey, err)
+		return
+	}
+
 	g.emit(IngestedMessage{
-		MsgID:      msgID,
+		MsgID:      cmdID,
 		SessionKey: msg.SessionKey,
 		Platform:   msg.Platform,
 		Content:    msg.Content,
@@ -179,33 +184,68 @@ func (g *Gateway) handleCommand(msgID string, msg platform.InboundMessage, cmd C
 func (g *Gateway) onDebounce(sessionKey string, generation int) {
 	g.mu.Lock()
 	state, ok := g.sessions[sessionKey]
-	if !ok || len(state.ids) == 0 {
+	if !ok || len(state.msgs) == 0 {
 		g.mu.Unlock()
 		return
 	}
-	// Bail out if a newer timer has superseded this one.
 	if state.generation != generation {
 		g.mu.Unlock()
 		return
 	}
-	ids := state.ids
+	msgs := state.msgs
 	content := state.content
-	replyTo := state.replyTo
 	delete(g.sessions, sessionKey)
 	g.mu.Unlock()
 
-	primaryID := ids[len(ids)-1]
-	mergedIDs := ids[:len(ids)-1]
-	if len(mergedIDs) > 0 {
-		g.msgStore.MarkMerged(context.Background(), primaryID, mergedIDs) //nolint:errcheck
+	n := len(msgs)
+	ids := make([]string, n)
+	for i := range msgs {
+		ids[i] = uuid.New().String()
+	}
+	primaryID := ids[n-1]
+
+	batch := make([]store.BatchMsg, n)
+	for i, m := range msgs {
+		mt := m.MessageTime
+		if mt == 0 {
+			mt = time.Now().UnixMilli()
+		}
+		bm := store.BatchMsg{
+			ID:            ids[i],
+			SessionKey:    m.SessionKey,
+			Platform:      m.Platform,
+			Content:       m.Content,
+			Raw:           m.RawContent,
+			PlatformMsgID: m.PlatformMessageID,
+			MessageTime:   mt,
+			MergedInto:    "",
+		}
+		if i < n-1 {
+			bm.Status = "merged"
+			bm.MergedInto = primaryID
+		} else {
+			bm.Status = "received"
+		}
+		batch[i] = bm
+	}
+
+	inserted, err := g.msgStore.CreateBatch(context.Background(), batch)
+	if err != nil {
+		log.Printf("msgingest: CreateBatch error sessionKey=%s: %v", sessionKey, err)
+		return
+	}
+	if inserted != int64(n) {
+		log.Printf("msgingest: CreateBatch partial insert sessionKey=%s: expected %d got %d, suppressing emit",
+			sessionKey, n, inserted)
+		return
 	}
 
 	g.emit(IngestedMessage{
 		MsgID:      primaryID,
 		SessionKey: sessionKey,
-		Platform:   replyTo.Platform,
+		Platform:   msgs[n-1].Platform,
 		Content:    content,
-		ReplyTo:    replyTo,
+		ReplyTo:    msgs[n-1],
 		Command:    CommandNone,
 	})
 }
