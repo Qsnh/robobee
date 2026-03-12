@@ -10,7 +10,6 @@ import (
 
 	"github.com/robobee/core/internal/ai"
 	"github.com/robobee/core/internal/api"
-	"github.com/robobee/core/internal/botrouter"
 	"github.com/robobee/core/internal/config"
 	"github.com/robobee/core/internal/dispatcher"
 	"github.com/robobee/core/internal/msgingest"
@@ -69,7 +68,7 @@ func main() {
 	sendersByPlatform := make(map[string]platform.PlatformSenderAdapter)
 
 	ingest := msgingest.New(msgStore, cfg.MessageQueue.DebounceWindow)
-	router := msgrouter.New(botrouter.NewRouter(aiClient, workerStore), ingest.Out())
+	router := msgrouter.New(aiClient, workerStore, ingest.Out())
 	disp := dispatcher.New(mgr, msgStore, router.Out())
 	sender := msgsender.New(sendersByPlatform, disp.Out())
 

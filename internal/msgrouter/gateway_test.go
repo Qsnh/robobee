@@ -6,27 +6,48 @@ import (
 	"testing"
 	"time"
 
+	"github.com/robobee/core/internal/ai"
+	"github.com/robobee/core/internal/model"
 	"github.com/robobee/core/internal/msgingest"
 	"github.com/robobee/core/internal/msgrouter"
+	"github.com/robobee/core/internal/store"
 )
 
-type mockRouter struct {
+type mockAIRouter struct {
 	workerID string
 	err      error
+	called   bool
 }
 
-func (r *mockRouter) Route(_ context.Context, _ string) (string, error) {
+func (r *mockAIRouter) RouteToWorker(_ context.Context, _ string, _ []ai.WorkerSummary) (string, error) {
+	r.called = true
 	return r.workerID, r.err
 }
 
-func sendIngest(ch chan<- msgingest.IngestedMessage, msg msgingest.IngestedMessage) {
-	ch <- msg
+func newTestGateway(t *testing.T, mock *mockAIRouter, workers []model.Worker, in <-chan msgingest.IngestedMessage) *msgrouter.Gateway {
+	t.Helper()
+	db, err := store.InitDB(":memory:")
+	if err != nil {
+		t.Fatalf("init db: %v", err)
+	}
+	t.Cleanup(func() { db.Close() })
+
+	ws := store.NewWorkerStore(db)
+	for _, w := range workers {
+		if _, err := ws.Create(w); err != nil {
+			t.Fatalf("create worker: %v", err)
+		}
+	}
+	return msgrouter.New(mock, ws, in)
 }
 
-// TestGateway_NormalMessage_GetsWorkerID verifies that a normal message is routed.
 func TestGateway_NormalMessage_GetsWorkerID(t *testing.T) {
 	in := make(chan msgingest.IngestedMessage, 1)
-	g := msgrouter.New(&mockRouter{workerID: "worker-42"}, in)
+	workers := []model.Worker{
+		{ID: "worker-42", Name: "test", Description: "test worker", WorkDir: t.TempDir()},
+	}
+	mock := &mockAIRouter{workerID: "worker-42"}
+	g := newTestGateway(t, mock, workers, in)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -47,10 +68,10 @@ func TestGateway_NormalMessage_GetsWorkerID(t *testing.T) {
 	}
 }
 
-// TestGateway_RouteFailure_SetsRouteErr verifies that a routing error is propagated.
-func TestGateway_RouteFailure_SetsRouteErr(t *testing.T) {
+func TestGateway_NoWorkers_SetsRouteErr(t *testing.T) {
 	in := make(chan msgingest.IngestedMessage, 1)
-	g := msgrouter.New(&mockRouter{err: errors.New("no workers")}, in)
+	mock := &mockAIRouter{}
+	g := newTestGateway(t, mock, []model.Worker{}, in)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -64,6 +85,60 @@ func TestGateway_RouteFailure_SetsRouteErr(t *testing.T) {
 			t.Fatal("expected RouteErr to be set")
 		}
 		if routed.WorkerID != "" {
+			t.Fatalf("expected empty WorkerID, got %q", routed.WorkerID)
+		}
+		if mock.called {
+			t.Error("AI router should not be called when no workers available")
+		}
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("timeout waiting for error message")
+	}
+}
+
+func TestGateway_UnknownWorkerID_SetsRouteErr(t *testing.T) {
+	in := make(chan msgingest.IngestedMessage, 1)
+	workers := []model.Worker{
+		{ID: "w1", Name: "test", Description: "test worker", WorkDir: t.TempDir()},
+	}
+	mock := &mockAIRouter{workerID: "unknown-id"}
+	g := newTestGateway(t, mock, workers, in)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go g.Run(ctx)
+
+	in <- msgingest.IngestedMessage{MsgID: "m1", SessionKey: "s1", Content: "some message"}
+
+	select {
+	case routed := <-g.Out():
+		if routed.RouteErr == "" {
+			t.Fatal("expected RouteErr to be set for unknown worker ID")
+		}
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("timeout")
+	}
+}
+
+func TestGateway_AIError_SetsRouteErr(t *testing.T) {
+	in := make(chan msgingest.IngestedMessage, 1)
+	workers := []model.Worker{
+		{ID: "w1", Name: "test", Description: "test worker", WorkDir: t.TempDir()},
+	}
+	mock := &mockAIRouter{err: errors.New("AI failure")}
+	g := newTestGateway(t, mock, workers, in)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go g.Run(ctx)
+
+	in <- msgingest.IngestedMessage{MsgID: "m1", SessionKey: "s1", Content: "help"}
+
+	select {
+	case routed := <-g.Out():
+		if routed.RouteErr == "" {
+			t.Fatal("expected RouteErr to be set on AI error")
+		}
+		if routed.WorkerID != "" {
 			t.Fatalf("expected empty WorkerID on error, got %q", routed.WorkerID)
 		}
 	case <-time.After(500 * time.Millisecond):
@@ -71,12 +146,10 @@ func TestGateway_RouteFailure_SetsRouteErr(t *testing.T) {
 	}
 }
 
-// TestGateway_CommandMessage_PassesThrough verifies that command messages bypass routing.
 func TestGateway_CommandMessage_PassesThrough(t *testing.T) {
 	in := make(chan msgingest.IngestedMessage, 1)
-	called := false
-	router := &spyRouter{fn: func() { called = true }, id: "w1"}
-	g := msgrouter.New(router, in)
+	mock := &mockAIRouter{workerID: "w1"}
+	g := newTestGateway(t, mock, []model.Worker{}, in)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -92,21 +165,10 @@ func TestGateway_CommandMessage_PassesThrough(t *testing.T) {
 		if routed.WorkerID != "" {
 			t.Fatalf("command should have empty WorkerID, got %q", routed.WorkerID)
 		}
+		if mock.called {
+			t.Error("AI router should not be called for command messages")
+		}
 	case <-time.After(300 * time.Millisecond):
 		t.Fatal("timeout")
 	}
-
-	if called {
-		t.Error("Route should not be called for command messages")
-	}
-}
-
-type spyRouter struct {
-	fn func()
-	id string
-}
-
-func (r *spyRouter) Route(_ context.Context, _ string) (string, error) {
-	r.fn()
-	return r.id, nil
 }

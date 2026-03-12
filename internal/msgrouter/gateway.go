@@ -2,17 +2,15 @@ package msgrouter
 
 import (
 	"context"
+	"fmt"
 	"log"
 
+	"github.com/robobee/core/internal/ai"
 	"github.com/robobee/core/internal/msgingest"
+	"github.com/robobee/core/internal/store"
 )
 
 const noWorkerMsg = "❌ 没有找到合适的 Worker，请换个描述试试"
-
-// MessageRouter routes a message content to a worker ID.
-type MessageRouter interface {
-	Route(ctx context.Context, message string) (string, error)
-}
 
 // RoutedMessage extends IngestedMessage with a resolved worker ID.
 type RoutedMessage struct {
@@ -23,17 +21,19 @@ type RoutedMessage struct {
 
 // Gateway reads IngestedMessages, routes normal messages, and emits RoutedMessages.
 type Gateway struct {
-	router MessageRouter
-	in     <-chan msgingest.IngestedMessage
-	out    chan RoutedMessage
+	aiRouter    ai.WorkerRouter
+	workerStore *store.WorkerStore
+	in          <-chan msgingest.IngestedMessage
+	out         chan RoutedMessage
 }
 
 // New constructs a Gateway.
-func New(router MessageRouter, in <-chan msgingest.IngestedMessage) *Gateway {
+func New(aiRouter ai.WorkerRouter, workerStore *store.WorkerStore, in <-chan msgingest.IngestedMessage) *Gateway {
 	return &Gateway{
-		router: router,
-		in:     in,
-		out:    make(chan RoutedMessage, 64),
+		aiRouter:    aiRouter,
+		workerStore: workerStore,
+		in:          in,
+		out:         make(chan RoutedMessage, 64),
 	}
 }
 
@@ -66,7 +66,7 @@ func (g *Gateway) route(ctx context.Context, msg msgingest.IngestedMessage) {
 		return
 	}
 
-	workerID, err := g.router.Route(ctx, msg.Content)
+	workerID, err := g.resolveWorker(ctx, msg.Content)
 	if err != nil {
 		log.Printf("msgrouter: route error sessionKey=%s: %v", msg.SessionKey, err)
 		select {
@@ -82,4 +82,28 @@ func (g *Gateway) route(ctx context.Context, msg msgingest.IngestedMessage) {
 	case <-ctx.Done():
 		return
 	}
+}
+
+func (g *Gateway) resolveWorker(ctx context.Context, content string) (string, error) {
+	workers, err := g.workerStore.List()
+	if err != nil {
+		return "", fmt.Errorf("list workers: %w", err)
+	}
+	if len(workers) == 0 {
+		return "", fmt.Errorf("no workers available")
+	}
+	summaries := make([]ai.WorkerSummary, len(workers))
+	validIDs := make(map[string]bool, len(workers))
+	for i, w := range workers {
+		summaries[i] = ai.WorkerSummary{ID: w.ID, Name: w.Name, Description: w.Description}
+		validIDs[w.ID] = true
+	}
+	workerID, err := g.aiRouter.RouteToWorker(ctx, content, summaries)
+	if err != nil {
+		return "", err
+	}
+	if !validIDs[workerID] {
+		return "", fmt.Errorf("worker %q not found", workerID)
+	}
+	return workerID, nil
 }
