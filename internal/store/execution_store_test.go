@@ -93,6 +93,33 @@ func TestExecutionStore_Create_StartedAtMillisecondPrecision(t *testing.T) {
 	}
 }
 
+func TestExecutionStore_UpdateResult_CompletedAtMillisecondPrecision(t *testing.T) {
+	db, err := InitDB(t.TempDir() + "/test.db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	ws := NewWorkerStore(db)
+	es := NewExecutionStore(db)
+
+	w, _ := ws.Create(model.Worker{Name: "Bot", WorkDir: "/tmp/bot"})
+	exec, _ := es.Create(w.ID, "test")
+
+	if err := es.UpdateResult(exec.ID, "output", model.ExecStatusCompleted); err != nil {
+		t.Fatalf("UpdateResult: %v", err)
+	}
+
+	var completedAt string
+	err = db.QueryRow(`SELECT completed_at FROM worker_executions WHERE id = ?`, exec.ID).Scan(&completedAt)
+	if err != nil {
+		t.Fatalf("scan completed_at: %v", err)
+	}
+	if len(completedAt) < 24 || completedAt[19] != '.' || completedAt[len(completedAt)-1] != 'Z' {
+		t.Errorf("completed_at %q: want millisecond format like 2026-03-11T10:30:00.123Z", completedAt)
+	}
+}
+
 func TestExecutionStore_GetBySessionID(t *testing.T) {
 	db, err := InitDB(t.TempDir() + "/test.db")
 	if err != nil {

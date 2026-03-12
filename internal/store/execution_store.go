@@ -142,8 +142,8 @@ func (s *ExecutionStore) UpdateLogs(id string, logs string) error {
 }
 
 func (s *ExecutionStore) UpdateResult(id string, result string, status model.ExecutionStatus) error {
-	now := time.Now().UTC()
-	_, err := s.db.Exec(`UPDATE worker_executions SET result=?, status=?, completed_at=? WHERE id=?`, result, status, now, id)
+	completedAt := time.Now().UTC().Format("2006-01-02T15:04:05.000Z")
+	_, err := s.db.Exec(`UPDATE worker_executions SET result=?, status=?, completed_at=? WHERE id=?`, result, status, completedAt, id)
 	return err
 }
 
