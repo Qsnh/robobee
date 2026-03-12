@@ -18,7 +18,6 @@ import (
 	"github.com/robobee/core/internal/platform"
 	"github.com/robobee/core/internal/platform/dingtalk"
 	"github.com/robobee/core/internal/platform/feishu"
-	"github.com/robobee/core/internal/scheduler"
 	"github.com/robobee/core/internal/store"
 	"github.com/robobee/core/internal/worker"
 )
@@ -46,20 +45,14 @@ func main() {
 	execStore := store.NewExecutionStore(db)
 	msgStore := store.NewMessageStore(db)
 
-	// Initialize Claude Code client for routing and cron
+	// Initialize Claude Code client for routing
 	aiClient, err := ai.NewClaudeCodeClient(cfg.Runtime.ClaudeCode.Binary)
 	if err != nil {
 		log.Fatalf("failed to create AI client: %v", err)
 	}
 
 	// Create worker manager
-	mgr := worker.NewManager(cfg, workerStore, execStore, aiClient)
-
-	// Start cron scheduler
-	sched := scheduler.New(workerStore, mgr)
-	if err := sched.Start(); err != nil {
-		log.Printf("scheduler start error: %v", err)
-	}
+	mgr := worker.NewManager(cfg, workerStore, execStore)
 
 	// Graceful shutdown context
 	ctx, cancel := context.WithCancel(context.Background())
@@ -90,7 +83,7 @@ func main() {
 	}
 
 	// Start HTTP API
-	srv := api.NewServer(workerStore, execStore, mgr, sched)
+	srv := api.NewServer(workerStore, execStore, mgr)
 
 	// Graceful shutdown
 	quit := make(chan os.Signal, 1)
@@ -99,7 +92,6 @@ func main() {
 		<-quit
 		log.Println("Shutting down...")
 		cancel()
-		sched.Stop()
 		db.Close()
 		os.Exit(0)
 	}()
