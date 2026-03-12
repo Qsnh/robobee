@@ -43,9 +43,7 @@ export function Dashboard() {
                   {w.description || t("common.noDescription")}
                 </p>
                 <p className="text-xs text-muted-foreground">
-                  {w.schedule_enabled
-                    ? `${t("common.schedule")}: ${w.cron_expression}`
-                    : t("common.onDemand")}
+                  {t("common.onDemand")}
                 </p>
               </CardContent>
             </Card>

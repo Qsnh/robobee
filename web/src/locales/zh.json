@@ -13,8 +13,7 @@
     "send": "发送",
     "sending": "发送中...",
     "noDescription": "无描述",
-    "onDemand": "按需触发",
-    "schedule": "定时"
+    "onDemand": "按需触发"
   },
   "dashboard": {
     "title": "仪表板",
@@ -31,11 +30,8 @@
       "descriptionPlaceholder": "这个工作者做什么？",
       "workDir": "工作目录（可选）",
       "workDirPlaceholder": "留空使用默认目录",
-      "enableSchedule": "启用定时",
-      "scheduleDescription": "定时描述",
-      "scheduleDescriptionPlaceholder": "例如：每天凌晨3点执行",
       "prompt": "提示词",
-      "promptPlaceholder": "这个工作者定时执行的指令..."
+      "promptPlaceholder": "这个工作者执行的指令..."
     },
     "deleteDialog": {
       "title": "删除工作者",
@@ -65,8 +61,6 @@
     "failedToSend": "发送消息失败",
     "workerInfo": "工作者信息",
     "id": "ID",
-    "scheduleDisabled": "已禁用",
-    "scheduleEnabled": "已启用（{{expr}}）",
     "workDir": "工作目录",
     "created": "创建时间",
     "prompt": "提示词"

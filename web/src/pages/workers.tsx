@@ -37,8 +37,6 @@ export function Workers() {
   const [name, setName] = useState("")
   const [description, setDescription] = useState("")
   const [prompt, setPrompt] = useState("")
-  const [scheduleEnabled, setScheduleEnabled] = useState(false)
-  const [scheduleDescription, setScheduleDescription] = useState("")
   const [workDir, setWorkDir] = useState("")
 
   const error = fetchError?.message || createWorker.error?.message || deleteWorker.error?.message || ""
@@ -48,16 +46,12 @@ export function Workers() {
       name,
       description,
       prompt: prompt || undefined,
-      schedule_enabled: scheduleEnabled || undefined,
-      schedule_description: scheduleEnabled ? scheduleDescription : undefined,
       work_dir: workDir || undefined,
     })
     setOpen(false)
     setName("")
     setDescription("")
     setPrompt("")
-    setScheduleEnabled(false)
-    setScheduleDescription("")
     setWorkDir("")
   }
 
@@ -107,38 +101,16 @@ export function Workers() {
                   placeholder={t("workers.form.workDirPlaceholder")}
                 />
               </div>
-              <div className="flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  id="schedule"
-                  checked={scheduleEnabled}
-                  onChange={(e) => setScheduleEnabled(e.target.checked)}
+              <div>
+                <Label htmlFor="prompt">{t("workers.form.prompt")}</Label>
+                <Textarea
+                  id="prompt"
+                  value={prompt}
+                  onChange={(e) => setPrompt(e.target.value)}
+                  placeholder={t("workers.form.promptPlaceholder")}
+                  rows={4}
                 />
-                <Label htmlFor="schedule">{t("workers.form.enableSchedule")}</Label>
               </div>
-              {scheduleEnabled && (
-                <>
-                  <div>
-                    <Label htmlFor="schedule-desc">{t("workers.form.scheduleDescription")}</Label>
-                    <Input
-                      id="schedule-desc"
-                      value={scheduleDescription}
-                      onChange={(e) => setScheduleDescription(e.target.value)}
-                      placeholder={t("workers.form.scheduleDescriptionPlaceholder")}
-                    />
-                  </div>
-                  <div>
-                    <Label htmlFor="prompt">{t("workers.form.prompt")}</Label>
-                    <Textarea
-                      id="prompt"
-                      value={prompt}
-                      onChange={(e) => setPrompt(e.target.value)}
-                      placeholder={t("workers.form.promptPlaceholder")}
-                      rows={4}
-                    />
-                  </div>
-                </>
-              )}
 
               <Button onClick={handleCreate} className="w-full">
                 {t("workers.createWorker")}
@@ -170,9 +142,7 @@ export function Workers() {
                 {w.description || t("common.noDescription")}
               </p>
               <p className="text-xs text-muted-foreground">
-                {w.schedule_enabled
-                  ? `${t("common.schedule")}: ${w.schedule_description || w.cron_expression}`
-                  : t("common.onDemand")}
+                {t("common.onDemand")}
               </p>
               <div className="flex gap-2 mt-3">
                 <Link to={`/workers/${w.id}`}>

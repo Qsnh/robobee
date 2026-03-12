@@ -192,12 +192,6 @@ export function WorkerDetail() {
             </CardHeader>
             <CardContent className="space-y-2">
               <p><strong>{t("workerDetail.id")}:</strong> <span className="font-mono text-sm">{worker.id}</span></p>
-              <p>
-                <strong>{t("common.schedule")}:</strong>{" "}
-                {worker.schedule_enabled
-                  ? t("workerDetail.scheduleEnabled", { expr: worker.cron_expression })
-                  : t("workerDetail.scheduleDisabled")}
-              </p>
               <p><strong>{t("workerDetail.workDir")}:</strong> {worker.work_dir}</p>
               <p><strong>{t("workerDetail.created")}:</strong> {new Date(worker.created_at).toLocaleString()}</p>
               {worker.prompt && (

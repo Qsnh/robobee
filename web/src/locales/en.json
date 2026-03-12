@@ -13,8 +13,7 @@
     "send": "Send",
     "sending": "Sending...",
     "noDescription": "No description",
-    "onDemand": "On-demand",
-    "schedule": "Schedule"
+    "onDemand": "On-demand"
   },
   "dashboard": {
     "title": "Dashboard",
@@ -31,11 +30,8 @@
       "descriptionPlaceholder": "What does this worker do?",
       "workDir": "Work Directory (optional)",
       "workDirPlaceholder": "Leave blank to use default",
-      "enableSchedule": "Enable Schedule",
-      "scheduleDescription": "Schedule Description",
-      "scheduleDescriptionPlaceholder": "e.g. Run at 3 AM every day",
       "prompt": "Prompt",
-      "promptPlaceholder": "The instruction this worker will execute on schedule..."
+      "promptPlaceholder": "The instruction this worker will execute..."
     },
     "deleteDialog": {
       "title": "Delete Worker",
@@ -65,8 +61,6 @@
     "failedToSend": "Failed to send message",
     "workerInfo": "Worker Info",
     "id": "ID",
-    "scheduleDisabled": "Disabled",
-    "scheduleEnabled": "Enabled ({{expr}})",
     "workDir": "Work Dir",
     "created": "Created",
     "prompt": "Prompt"
