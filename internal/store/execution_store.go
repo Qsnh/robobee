@@ -19,6 +19,7 @@ func NewExecutionStore(db *sql.DB) *ExecutionStore {
 
 func (s *ExecutionStore) create(workerID, triggerInput, sessionID string) (model.WorkerExecution, error) {
 	now := time.Now().UTC()
+	startedAtStr := now.Format("2006-01-02T15:04:05.000Z")
 	exec := model.WorkerExecution{
 		ID:           uuid.New().String(),
 		WorkerID:     workerID,
@@ -30,7 +31,7 @@ func (s *ExecutionStore) create(workerID, triggerInput, sessionID string) (model
 	_, err := s.db.Exec(
 		`INSERT INTO worker_executions (id, worker_id, session_id, trigger_input, status, result, ai_process_pid, started_at)
 		 VALUES (?, ?, ?, ?, ?, '', 0, ?)`,
-		exec.ID, exec.WorkerID, exec.SessionID, exec.TriggerInput, exec.Status, exec.StartedAt,
+		exec.ID, exec.WorkerID, exec.SessionID, exec.TriggerInput, exec.Status, startedAtStr,
 	)
 	if err != nil {
 		return model.WorkerExecution{}, fmt.Errorf("insert execution: %w", err)

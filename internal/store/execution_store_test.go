@@ -61,6 +61,38 @@ func TestExecutionStore_UpdateStatus(t *testing.T) {
 	}
 }
 
+func TestExecutionStore_Create_StartedAtMillisecondPrecision(t *testing.T) {
+	db, err := InitDB(t.TempDir() + "/test.db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	ws := NewWorkerStore(db)
+	es := NewExecutionStore(db)
+
+	w, _ := ws.Create(model.Worker{Name: "Bot", WorkDir: "/tmp/bot"})
+	exec, err := es.Create(w.ID, "test")
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	// Verify the raw DB value has millisecond precision
+	var startedAt string
+	err = db.QueryRow(`SELECT started_at FROM worker_executions WHERE id = ?`, exec.ID).Scan(&startedAt)
+	if err != nil {
+		t.Fatalf("scan started_at: %v", err)
+	}
+	if len(startedAt) < 24 || startedAt[19] != '.' || startedAt[len(startedAt)-1] != 'Z' {
+		t.Errorf("started_at %q: want millisecond format like 2026-03-11T10:30:00.123Z", startedAt)
+	}
+
+	// Verify the returned struct still has a valid *time.Time
+	if exec.StartedAt == nil {
+		t.Error("exec.StartedAt must not be nil")
+	}
+}
+
 func TestExecutionStore_GetBySessionID(t *testing.T) {
 	db, err := InitDB(t.TempDir() + "/test.db")
 	if err != nil {
