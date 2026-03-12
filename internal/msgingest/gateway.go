@@ -40,10 +40,11 @@ type MessageStore interface {
 }
 
 type debounceState struct {
-	timer   *time.Timer
-	ids     []string
-	content string
-	replyTo platform.InboundMessage
+	timer      *time.Timer
+	generation int
+	ids        []string
+	content    string
+	replyTo    platform.InboundMessage
 }
 
 // Gateway receives raw platform messages, deduplicates, debounces, and emits IngestedMessages.
@@ -74,6 +75,15 @@ func (g *Gateway) Run(ctx context.Context) {
 	close(g.out)
 }
 
+// emit sends msg to the output channel non-blocking; drops and logs if the channel is full.
+func (g *Gateway) emit(msg IngestedMessage) {
+	select {
+	case g.out <- msg:
+	default:
+		log.Printf("msgingest: output channel full, dropping message sessionKey=%s", msg.SessionKey)
+	}
+}
+
 // Dispatch is called by a platform receiver for each inbound message.
 func (g *Gateway) Dispatch(msg platform.InboundMessage) {
 	msgID := uuid.New().String()
@@ -93,7 +103,6 @@ func (g *Gateway) Dispatch(msg platform.InboundMessage) {
 	}
 
 	g.mu.Lock()
-	defer g.mu.Unlock()
 
 	state, ok := g.sessions[msg.SessionKey]
 	if !ok {
@@ -109,13 +118,22 @@ func (g *Gateway) Dispatch(msg platform.InboundMessage) {
 	state.ids = append(state.ids, msgID)
 	state.replyTo = msg
 
-	g.msgStore.UpdateStatusBatch(context.Background(), state.ids, "debouncing") //nolint:errcheck
+	// Snapshot IDs to pass to UpdateStatusBatch outside the lock.
+	ids := make([]string, len(state.ids))
+	copy(ids, state.ids)
 
 	if state.timer != nil {
 		state.timer.Stop()
 	}
+	state.generation++
+	gen := state.generation
 	sessionKey := msg.SessionKey
-	state.timer = time.AfterFunc(g.debounce, func() { g.onDebounce(sessionKey) })
+	state.timer = time.AfterFunc(g.debounce, func() { g.onDebounce(sessionKey, gen) })
+
+	g.mu.Unlock()
+
+	// Fix: store I/O outside the critical section.
+	g.msgStore.UpdateStatusBatch(context.Background(), ids, "debouncing") //nolint:errcheck
 }
 
 func (g *Gateway) handleCommand(msgID string, msg platform.InboundMessage, cmd CommandType) {
@@ -131,20 +149,25 @@ func (g *Gateway) handleCommand(msgID string, msg platform.InboundMessage, cmd C
 	}
 	g.mu.Unlock()
 
-	g.out <- IngestedMessage{
+	g.emit(IngestedMessage{
 		MsgID:      msgID,
 		SessionKey: msg.SessionKey,
 		Platform:   msg.Platform,
 		Content:    msg.Content,
 		ReplyTo:    msg,
 		Command:    cmd,
-	}
+	})
 }
 
-func (g *Gateway) onDebounce(sessionKey string) {
+func (g *Gateway) onDebounce(sessionKey string, generation int) {
 	g.mu.Lock()
 	state, ok := g.sessions[sessionKey]
 	if !ok || len(state.ids) == 0 {
+		g.mu.Unlock()
+		return
+	}
+	// Bail out if a newer timer has superseded this one.
+	if state.generation != generation {
 		g.mu.Unlock()
 		return
 	}
@@ -160,14 +183,14 @@ func (g *Gateway) onDebounce(sessionKey string) {
 		g.msgStore.MarkMerged(context.Background(), primaryID, mergedIDs) //nolint:errcheck
 	}
 
-	g.out <- IngestedMessage{
+	g.emit(IngestedMessage{
 		MsgID:      primaryID,
 		SessionKey: sessionKey,
 		Platform:   replyTo.Platform,
 		Content:    content,
 		ReplyTo:    replyTo,
 		Command:    CommandNone,
-	}
+	})
 }
 
 func detectCommand(content string) CommandType {
