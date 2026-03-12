@@ -33,7 +33,7 @@ type IngestedMessage struct {
 
 // MessageStore is the subset of store.MessageStore used by msgingest.
 type MessageStore interface {
-	Create(ctx context.Context, id, sessionKey, platform, content, raw, platformMsgID string) (bool, error)
+	Create(ctx context.Context, id, sessionKey, platform, content, raw, platformMsgID string, messageTime int64) (bool, error)
 	UpdateStatusBatch(ctx context.Context, ids []string, status string) error
 	MarkTerminal(ctx context.Context, ids []string, status string) error
 	MarkMerged(ctx context.Context, primaryID string, mergedIDs []string) error
@@ -87,7 +87,7 @@ func (g *Gateway) emit(msg IngestedMessage) {
 // Dispatch is called by a platform receiver for each inbound message.
 func (g *Gateway) Dispatch(msg platform.InboundMessage) {
 	msgID := uuid.New().String()
-	inserted, err := g.msgStore.Create(context.Background(), msgID, msg.SessionKey, msg.Platform, msg.Content, msg.RawContent, msg.PlatformMessageID)
+	inserted, err := g.msgStore.Create(context.Background(), msgID, msg.SessionKey, msg.Platform, msg.Content, msg.RawContent, msg.PlatformMessageID, msg.MessageTime)
 	if err != nil {
 		log.Printf("msgingest: store error: %v", err)
 		return
@@ -99,6 +99,25 @@ func (g *Gateway) Dispatch(msg platform.InboundMessage) {
 
 	if cmd := detectCommand(msg.Content); cmd != CommandNone {
 		g.handleCommand(msgID, msg, cmd)
+		return
+	}
+
+	// Resolve effective message time; zero means unknown, treat as now (never historical).
+	msgTime := msg.MessageTime
+	if msgTime == 0 {
+		msgTime = time.Now().UnixMilli()
+	}
+
+	// Historical message: age exceeds debounce window → skip debounce, emit immediately.
+	if time.Now().UnixMilli()-msgTime > g.debounce.Milliseconds() {
+		g.emit(IngestedMessage{
+			MsgID:      msgID,
+			SessionKey: msg.SessionKey,
+			Platform:   msg.Platform,
+			Content:    msg.Content,
+			ReplyTo:    msg,
+			Command:    CommandNone,
+		})
 		return
 	}
 
@@ -118,7 +137,6 @@ func (g *Gateway) Dispatch(msg platform.InboundMessage) {
 	state.ids = append(state.ids, msgID)
 	state.replyTo = msg
 
-	// Snapshot IDs to pass to UpdateStatusBatch outside the lock.
 	ids := make([]string, len(state.ids))
 	copy(ids, state.ids)
 
@@ -132,7 +150,6 @@ func (g *Gateway) Dispatch(msg platform.InboundMessage) {
 
 	g.mu.Unlock()
 
-	// Fix: store I/O outside the critical section.
 	g.msgStore.UpdateStatusBatch(context.Background(), ids, "debouncing") //nolint:errcheck
 }
 
