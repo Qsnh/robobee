@@ -120,19 +120,23 @@ type SenderEvent struct {
 **Interface:**
 
 ```go
-type Gateway struct { /* msgStore, debounce, sessions map, out chan */ }
+type Gateway struct { /* msgStore, debounce, sessions map[sessionKey]*debounceState, out chan */ }
 
 func (g *Gateway) Dispatch(msg platform.InboundMessage)
 func (g *Gateway) Run(ctx context.Context)
 func (g *Gateway) Out() <-chan IngestedMessage
 ```
 
+**Channel:** `out` is a buffered channel (size 64).
+
 **Responsibilities:**
 
-- Deduplication via `msgStore.Create` (INSERT OR IGNORE); drop duplicate platform messages silently.
-- Normal messages: accumulate within debounce window, merge content, persist the merged message, then push one `IngestedMessage` to `out`.
+- Deduplication via `msgStore.Create` (INSERT OR IGNORE); drop duplicate platform messages silently before doing anything else.
+- Normal messages: accumulate within debounce window per session key, reset timer on each new message, merge content with `\n\n---\n\n` separator. When the debounce timer fires, persist the merged message (primary ID = last message in batch), then push one `IngestedMessage` to `out`. A command message arriving during an active debounce window immediately cancels that window: the accumulated normal messages are dropped (marked failed in DB), and the command is processed on its own.
 - Command messages (e.g. `clear`): skip debounce, persist immediately, push `IngestedMessage{Command: CommandClear}` to `out`.
 - Does **not** send ACK. Does **not** route.
+
+**Primary message ID:** the last `MsgID` in the debounce batch is used as the primary tracking ID (consistent with current `session_queue.go:80`).
 
 ### Layer 2 — `internal/msgrouter`
 
@@ -146,37 +150,44 @@ func (g *Gateway) Run(ctx context.Context)
 func (g *Gateway) Out() <-chan RoutedMessage
 ```
 
+**Channel:** `out` is a buffered channel (size 64).
+
 **Responsibilities:**
 
 - Normal messages: call `router.Route(content)` → populate `WorkerID`.
 - Command messages (`Command != ""`): skip AI routing, pass through with `WorkerID` empty.
-- Route failure: set `RouteErr`, pass through; dispatcher will emit an error reply.
+- Route failure: set `RouteErr` to the user-facing error string (sourced from `botrouter` error), pass through with empty `WorkerID`; dispatcher will emit a `SenderEventError` reply.
 
 ### Layer 3 — `internal/dispatcher`
 
 **Interface:**
 
 ```go
-type Dispatcher struct { /* manager, msgStore, in, results(internal), out chan, sessions map */ }
+type Dispatcher struct { /* manager, msgStore, in, results(internal chan internalResult), out chan, sessions map[queueKey]*sessionState */ }
 
 func New(manager ExecutionManager, msgStore MessageStore, in <-chan RoutedMessage) *Dispatcher
 func (d *Dispatcher) Run(ctx context.Context)
 func (d *Dispatcher) Out() <-chan SenderEvent
 ```
 
+**Channel:** `out` is a buffered channel (size 64).
+
+**Queue key:** `sessionKey + "|" + workerID` (same as current `queueKey()` in `queue_manager.go:30`).
+
 **Responsibilities:**
 
 - Single event loop (`select` over `in`, internal `results` channel, `ctx.Done()`).
 - On receiving `RoutedMessage`:
-  - If `RouteErr` is set: emit `SenderEvent{SenderEventError, …}`.
-  - If `Command == CommandClear`: cancel all pending messages for the session, emit clear reply via `SenderEvent`.
-  - Otherwise: enqueue for the session+worker pair, emit `SenderEvent{SenderEventACK, …}` immediately to confirm entry into queue.
-- Per-session serialization: one execution in-flight per session+worker at a time; subsequent messages queue as pending.
-- Async execution: fire `manager.ExecuteWorker` or `manager.ReplyExecution` in a goroutine; result arrives on internal `results` channel (no blocking slot).
-- On result arrival: emit `SenderEvent{SenderEventResult, …}`, then fire next pending message if any.
-- Startup recovery: call `msgStore.GetUnfinished()` to restore in-progress sessions (same logic as current `RecoverFromDB`).
+  - If `RouteErr` is set: emit `SenderEvent{SenderEventError, Content: routeErrMsg}` and return.
+  - If `Command == CommandClear`: mark all pending+debouncing messages for the session as failed in DB, clear the session state, emit `SenderEvent{SenderEventResult, Content: "✅ 上下文已重置"}`.
+  - Otherwise: enqueue under `queueKey(sessionKey, workerID)`. Emit `SenderEvent{SenderEventACK}` immediately. If the queue was idle, fire execution immediately; otherwise add to pending queue.
+- **Serialization rule:** same `queueKey` → at most one active execution at a time. Different queue keys (different sessions or different workers) run concurrently.
+- Async execution: a background goroutine calls `manager.ExecuteWorker` or `manager.ReplyExecution`, then polls `manager.GetExecution` until terminal status (existing `waitForResult` logic). On completion, sends to internal `results` channel.
+- On internal result arrival: emit `SenderEvent{SenderEventResult, …}`. If the queue has pending messages, fire the next one immediately.
+- **Startup recovery:** call `msgStore.GetUnfinished()` at startup. Clear sentinel rows (no worker_id, status `clear`) are not returned by `GetUnfinished` and are not replayed. Only rows with a valid `worker_id` and status `executing`/`debouncing`/`pending` are recovered.
+- **Graceful shutdown:** when `ctx` is cancelled, the event loop exits. In-flight async execution goroutines run to completion (they use `context.Background()` internally, consistent with current behavior); their results are silently dropped after shutdown.
 
-**Serialization rule:** same session+worker → at most one active execution at a time. Multiple sessions run concurrently.
+**ACK behavior change from current:** the old code sent ACK only for the first message when no session was active. The new design sends ACK for every debounced batch that enters the queue (including messages that arrive while a session is executing and are added to the pending queue). This is intentional — it confirms the message has been accepted for processing.
 
 ### Layer 4 — `internal/msgsender`
 
