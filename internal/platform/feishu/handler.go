@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"log"
+	"strconv"
 
 	lark "github.com/larksuite/oapi-sdk-go/v3"
 	larkcore "github.com/larksuite/oapi-sdk-go/v3/core"
@@ -85,6 +86,7 @@ func (r *FeishuReceiver) Start(ctx context.Context, dispatch func(platform.Inbou
 				RawContent:        *msg.Content,
 				Raw:               event,
 				PlatformMessageID: feishuMsgID(msg.MessageId),
+				MessageTime:       parseMillis(msg.CreateTime),
 			})
 			return nil
 		})
@@ -163,4 +165,17 @@ func feishuMsgID(s *string) string {
 		return ""
 	}
 	return *s
+}
+
+// parseMillis converts a *string millisecond timestamp (e.g. "1609073151345") to int64.
+// Returns 0 for nil or unparseable input.
+func parseMillis(s *string) int64 {
+	if s == nil {
+		return 0
+	}
+	v, err := strconv.ParseInt(*s, 10, 64)
+	if err != nil {
+		return 0
+	}
+	return v
 }
