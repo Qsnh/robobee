@@ -2,9 +2,102 @@ package store
 
 import (
 	"database/sql"
+	"fmt"
 
 	_ "github.com/mattn/go-sqlite3"
 )
+
+type migration struct {
+	version int
+	name    string
+	sql     string
+}
+
+var migrations = []migration{
+	{
+		version: 1,
+		name:    "20260311000001_create_table_workers",
+		sql: `CREATE TABLE IF NOT EXISTS workers (
+		id TEXT PRIMARY KEY,
+		name TEXT NOT NULL,
+		work_dir TEXT NOT NULL,
+		status TEXT NOT NULL DEFAULT 'idle',
+		schedule_enabled INTEGER NOT NULL DEFAULT 0,
+		cron_expression TEXT NOT NULL DEFAULT '',
+		schedule_description TEXT NOT NULL DEFAULT '',
+		description TEXT NOT NULL DEFAULT '',
+		prompt TEXT NOT NULL DEFAULT '',
+		created_at DATETIME NOT NULL DEFAULT (datetime('now')),
+		updated_at DATETIME NOT NULL DEFAULT (datetime('now'))
+	)`,
+	},
+	{
+		version: 2,
+		name:    "20260311000002_create_table_worker_executions",
+		sql: `CREATE TABLE IF NOT EXISTS worker_executions (
+		id TEXT PRIMARY KEY,
+		worker_id TEXT NOT NULL,
+		session_id TEXT NOT NULL,
+		status TEXT NOT NULL DEFAULT 'pending',
+		ai_process_pid INTEGER NOT NULL DEFAULT 0,
+		trigger_input TEXT NOT NULL DEFAULT '',
+		result TEXT NOT NULL DEFAULT '',
+		logs TEXT NOT NULL DEFAULT '',
+		started_at   DATETIME DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+		completed_at DATETIME DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+		FOREIGN KEY (worker_id) REFERENCES workers(id) ON DELETE CASCADE
+	)`,
+	},
+	{
+		version: 3,
+		name:    "20260311000003_create_table_platform_messages",
+		sql: `CREATE TABLE IF NOT EXISTS platform_messages (
+		id           TEXT PRIMARY KEY,
+		session_key  TEXT NOT NULL,
+		platform     TEXT NOT NULL,
+		content      TEXT NOT NULL,
+		worker_id    TEXT NOT NULL DEFAULT '',
+		execution_id TEXT NOT NULL DEFAULT '',
+		session_id   TEXT NOT NULL DEFAULT '',
+		status       TEXT NOT NULL DEFAULT 'received',
+		merged_into  TEXT NOT NULL DEFAULT '',
+		platform_msg_id TEXT NOT NULL DEFAULT '',
+		raw          TEXT NOT NULL DEFAULT '',
+		received_at     DATETIME NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+		processed_at    DATETIME
+	)`,
+	},
+	{
+		version: 4,
+		name:    "20260311000004_create_index_worker_executions_worker_id",
+		sql:     `CREATE INDEX IF NOT EXISTS idx_worker_executions_worker_id ON worker_executions(worker_id)`,
+	},
+	{
+		version: 5,
+		name:    "20260311000005_create_index_worker_executions_session_id",
+		sql:     `CREATE INDEX IF NOT EXISTS idx_worker_executions_session_id ON worker_executions(session_id)`,
+	},
+	{
+		version: 6,
+		name:    "20260311000006_create_index_workers_schedule",
+		sql:     `CREATE INDEX IF NOT EXISTS idx_workers_schedule ON workers(schedule_enabled) WHERE schedule_enabled = 1`,
+	},
+	{
+		version: 7,
+		name:    "20260311000007_create_index_platform_messages_session",
+		sql:     `CREATE INDEX IF NOT EXISTS idx_platform_messages_session ON platform_messages(session_key, received_at DESC)`,
+	},
+	{
+		version: 8,
+		name:    "20260311000008_create_index_platform_messages_worker_status",
+		sql:     `CREATE INDEX IF NOT EXISTS idx_platform_messages_worker_status ON platform_messages(session_key, worker_id, status)`,
+	},
+	{
+		version: 9,
+		name:    "20260311000009_create_index_platform_messages_platform_msg_id",
+		sql:     `CREATE UNIQUE INDEX IF NOT EXISTS idx_platform_messages_platform_msg_id ON platform_messages(platform_msg_id) WHERE platform_msg_id != ''`,
+	},
+}
 
 func InitDB(dbPath string) (*sql.DB, error) {
 	db, err := sql.Open("sqlite3", dbPath+"?_journal_mode=WAL&_foreign_keys=on&_busy_timeout=5000")
@@ -24,81 +117,41 @@ func InitDB(dbPath string) (*sql.DB, error) {
 }
 
 func migrate(db *sql.DB) error {
-	schema := `
-	DROP TABLE IF EXISTS platform_sessions;
-	DROP TABLE IF EXISTS feishu_sessions;
-	DROP TABLE IF EXISTS dingtalk_sessions;
-
-	CREATE TABLE IF NOT EXISTS workers (
-		id TEXT PRIMARY KEY,
-		name TEXT NOT NULL,
-		description TEXT NOT NULL DEFAULT '',
-		prompt TEXT NOT NULL DEFAULT '',
-		work_dir TEXT NOT NULL,
-		cron_expression TEXT NOT NULL DEFAULT '',
-		schedule_enabled INTEGER NOT NULL DEFAULT 0,
-		schedule_description TEXT NOT NULL DEFAULT '',
-		status TEXT NOT NULL DEFAULT 'idle',
-		created_at DATETIME NOT NULL DEFAULT (datetime('now')),
-		updated_at DATETIME NOT NULL DEFAULT (datetime('now'))
-	);
-
-	CREATE TABLE IF NOT EXISTS worker_executions (
-		id TEXT PRIMARY KEY,
-		worker_id TEXT NOT NULL,
-		session_id TEXT NOT NULL,
-		trigger_input TEXT NOT NULL DEFAULT '',
-		status TEXT NOT NULL DEFAULT 'pending',
-		result TEXT NOT NULL DEFAULT '',
-		logs TEXT NOT NULL DEFAULT '',
-		ai_process_pid INTEGER NOT NULL DEFAULT 0,
-		started_at   DATETIME DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
-		completed_at DATETIME DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
-		FOREIGN KEY (worker_id) REFERENCES workers(id) ON DELETE CASCADE
-	);
-
-	CREATE TABLE IF NOT EXISTS platform_messages (
-		id           TEXT PRIMARY KEY,
-		session_key  TEXT NOT NULL,
-		platform     TEXT NOT NULL,
-		worker_id    TEXT NOT NULL DEFAULT '',
-		content      TEXT NOT NULL,
-		raw          TEXT NOT NULL DEFAULT '',
-		status       TEXT NOT NULL DEFAULT 'received',
-		merged_into  TEXT NOT NULL DEFAULT '',
-		execution_id TEXT NOT NULL DEFAULT '',
-		session_id   TEXT NOT NULL DEFAULT '',
-		received_at     DATETIME NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
-		processed_at    DATETIME,
-		platform_msg_id TEXT NOT NULL DEFAULT ''
-	);
-
-	CREATE INDEX IF NOT EXISTS idx_worker_executions_worker_id ON worker_executions(worker_id);
-	CREATE INDEX IF NOT EXISTS idx_worker_executions_session_id ON worker_executions(session_id);
-	CREATE INDEX IF NOT EXISTS idx_workers_schedule ON workers(schedule_enabled) WHERE schedule_enabled = 1;
-	DROP INDEX IF EXISTS idx_platform_messages_session;
-	CREATE INDEX IF NOT EXISTS idx_platform_messages_session
-		ON platform_messages(session_key, received_at DESC);
-	CREATE INDEX IF NOT EXISTS idx_platform_messages_worker_status
-		ON platform_messages(session_key, worker_id, status);
-	CREATE UNIQUE INDEX IF NOT EXISTS idx_platform_messages_platform_msg_id
-		ON platform_messages(platform_msg_id)
-		WHERE platform_msg_id != '';
-	`
-	if _, err := db.Exec(schema); err != nil {
+	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS schema_migrations (
+		version    INTEGER PRIMARY KEY,
+		name       TEXT NOT NULL,
+		applied_at DATETIME NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+	)`); err != nil {
 		return err
 	}
+	return applyMigrations(db, migrations)
+}
 
-	// Idempotent column additions for existing databases.
-	for _, stmt := range []string{
-		"ALTER TABLE platform_messages ADD COLUMN execution_id TEXT NOT NULL DEFAULT ''",
-		"ALTER TABLE platform_messages ADD COLUMN session_id  TEXT NOT NULL DEFAULT ''",
-		"ALTER TABLE platform_messages ADD COLUMN raw         TEXT NOT NULL DEFAULT ''",
-		"ALTER TABLE platform_messages ADD COLUMN platform_msg_id TEXT NOT NULL DEFAULT ''",
-		"CREATE UNIQUE INDEX IF NOT EXISTS idx_platform_messages_platform_msg_id ON platform_messages(platform_msg_id) WHERE platform_msg_id != ''",
-	} {
-		db.Exec(stmt) // ignore "duplicate column name" on re-runs
+func applyMigrations(db *sql.DB, migrations []migration) error {
+	for _, m := range migrations {
+		var count int
+		err := db.QueryRow(`SELECT COUNT(*) FROM schema_migrations WHERE version = ?`, m.version).Scan(&count)
+		if err != nil {
+			return fmt.Errorf("checking migration %d: %w", m.version, err)
+		}
+		if count > 0 {
+			continue
+		}
+		tx, err := db.Begin()
+		if err != nil {
+			return fmt.Errorf("begin tx for migration %d: %w", m.version, err)
+		}
+		if _, err = tx.Exec(m.sql); err != nil {
+			tx.Rollback()
+			return fmt.Errorf("migration %d %q: %w", m.version, m.name, err)
+		}
+		if _, err = tx.Exec(`INSERT INTO schema_migrations (version, name) VALUES (?, ?)`, m.version, m.name); err != nil {
+			tx.Rollback()
+			return fmt.Errorf("recording migration %d: %w", m.version, err)
+		}
+		if err = tx.Commit(); err != nil {
+			return fmt.Errorf("commit migration %d: %w", m.version, err)
+		}
 	}
-
 	return nil
 }
