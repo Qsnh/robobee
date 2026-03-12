@@ -44,19 +44,27 @@ Change six timestamp columns across three tables from `DATETIME` (text) to `INTE
 
 ### 4. `internal/store/worker_store.go`
 
-- `Create`: `w.CreatedAt = time.Now().UTC()` → `w.CreatedAt = time.Now().UnixMilli()`
-- `Update` / `UpdateStatus`: `time.Now().UTC()` → `time.Now().UnixMilli()`
-- `scanWorker`: scans directly into `int64` fields (no change needed to scan logic)
+- `Create`: replace `w.CreatedAt = time.Now().UTC()` with `w.CreatedAt = time.Now().UnixMilli()`; the follow-on assignment `w.UpdatedAt = w.CreatedAt` remains valid (both are now `int64`) and is unchanged
+- `Update` / `UpdateStatus`: replace `time.Now().UTC()` with `time.Now().UnixMilli()`
+- `scanWorker`: `database/sql` natively scans a SQLite `INTEGER` into a Go `int64`, so no scan logic changes are needed
+- The `"time"` import is retained — `time.Now().UnixMilli()` still requires it
 
 ### 5. `internal/store/execution_store.go`
 
-- `create`: replace `startedAtStr` string formatting with `time.Now().UnixMilli()`; update `StartedAt` field to `*int64`
-- `UpdateResult`: replace `completedAt` string formatting with `time.Now().UnixMilli()`
+- `create`: remove `now := time.Now().UTC()` and `startedAtStr` string formatting; replace with:
+  ```go
+  millis := time.Now().UnixMilli()
+  ```
+  Assign `StartedAt: &millis` in the struct literal. A temporary variable is required — `&time.Now().UnixMilli()` is not valid Go.
+- `UpdateResult`: replace `completedAt` string variable with `time.Now().UnixMilli()` passed directly to `db.Exec`
+- The `"time"` import is retained
 
 ### 6. `internal/store/message_store.go`
 
 - `Create`: replace `time.Now().UTC().Format(...)` with `time.Now().UnixMilli()`
-- `MarkTerminal`: replace `now` string with `time.Now().UnixMilli()`
+- `MarkTerminal`: replace the `now` string variable with `time.Now().UnixMilli()` passed directly to `db.ExecContext`
+- `InsertClearSentinel`: add `received_at` to the INSERT column list and supply `time.Now().UnixMilli()` as the value. This is a required correctness fix: the current code omits `received_at` from the INSERT and silently relies on the SQL `DEFAULT` expression. Removing that default (as planned) will cause a `NOT NULL` constraint violation at runtime. The existing tests pass today only because the SQL default handles it silently — they will fail without this fix. The tests themselves do not assert on timestamp format and require no changes.
+- `GetSession` uses `ORDER BY received_at DESC` — sort correctness is preserved since larger integers represent more recent times
 
 ### 7. `web/src/lib/types.ts`
 
@@ -67,9 +75,30 @@ Change six timestamp columns across three tables from `DATETIME` (text) to `INTE
 
 ### 8. Frontend pages
 
-`new Date(timestamp)` works identically for both string ISO and numeric ms values — no logic changes required. Only type annotations update.
+`new Date(timestamp)` accepts both string ISO and numeric ms values, so display calls like `new Date(worker.created_at).toLocaleString()` require no logic change.
 
-### 9. Local DB cleanup
+Two sort comparisons use `String.prototype.localeCompare` which is not valid on `number`. These must be changed to numeric subtraction:
+
+- `web/src/pages/executions.tsx` (lines 34–38): replace `bTime.localeCompare(aTime)` with `(b[0].started_at ?? 0) - (a[0].started_at ?? 0)`
+- `web/src/pages/worker-detail.tsx` (lines 49–52): same change
+
+### 9. `internal/store/execution_store_test.go`
+
+Two tests assert that the raw DB value is a formatted datetime string:
+- `TestExecutionStore_Create_StartedAtMillisecondPrecision`
+- `TestExecutionStore_UpdateResult_CompletedAtMillisecondPrecision`
+
+Rewrite both to scan the raw column value into `int64` and assert it is a positive Unix millisecond timestamp (`> 0`).
+
+### 10. `internal/store/message_store_test.go`
+
+Two tests assert that the raw DB value is a formatted datetime string:
+- `TestMessageStore_Create_ReceivedAtMillisecondPrecision`
+- `TestMessageStore_MarkTerminal_ProcessedAtMillisecondPrecision`
+
+Rewrite both to scan the raw column value into `int64` and assert it is a positive Unix millisecond timestamp (`> 0`).
+
+### 11. Local DB cleanup
 
 Delete `data/robobee.db`, `data/robobee.db-shm`, `data/robobee.db-wal`. The app recreates them on next startup.
 
@@ -77,3 +106,4 @@ Delete `data/robobee.db`, `data/robobee.db-shm`, `data/robobee.db-wal`. The app 
 
 - `schema_migrations.applied_at` — internal bookkeeping column, not part of this change
 - `PendingMessage` model — does not carry timestamp fields
+- `platform_messages` store methods return `model.PendingMessage` (no timestamp fields) or raw scans — no model struct exposes `received_at` or `processed_at`
