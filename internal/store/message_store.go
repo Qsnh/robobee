@@ -24,12 +24,15 @@ func NewMessageStore(db *sql.DB) *MessageStore {
 // Create inserts a new message record with status "received".
 // Returns inserted=false (no error) when platform_msg_id is non-empty and already exists.
 // If platform_msg_id is empty, the insert always proceeds (no dedup).
-func (s *MessageStore) Create(ctx context.Context, id, sessionKey, platform, content, raw, platformMsgID string) (bool, error) {
+// messageTime is stored as received_at; pass 0 to use server time.
+func (s *MessageStore) Create(ctx context.Context, id, sessionKey, platform, content, raw, platformMsgID string, messageTime int64) (bool, error) {
+	if messageTime == 0 {
+		messageTime = time.Now().UnixMilli()
+	}
 	result, err := s.db.ExecContext(ctx,
 		`INSERT OR IGNORE INTO platform_messages (id, session_key, platform, content, raw, platform_msg_id, received_at)
 		 VALUES (?, ?, ?, ?, ?, ?, ?)`,
-		id, sessionKey, platform, content, raw, platformMsgID,
-		time.Now().UnixMilli(),
+		id, sessionKey, platform, content, raw, platformMsgID, messageTime,
 	)
 	if err != nil {
 		return false, err

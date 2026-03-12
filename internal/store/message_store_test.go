@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"testing"
+	"time"
 )
 
 func setupMessageStore(t *testing.T) *MessageStore {
@@ -19,7 +20,7 @@ func TestMessageStore_Create(t *testing.T) {
 	s := setupMessageStore(t)
 	ctx := context.Background()
 
-	if _, err := s.Create(ctx, "msg-1", "feishu:chat1:userA", "feishu", "hello world", `{"text":"hello world"}`, ""); err != nil {
+	if _, err := s.Create(ctx, "msg-1", "feishu:chat1:userA", "feishu", "hello world", `{"text":"hello world"}`, "", 0); err != nil {
 		t.Fatalf("Create: %v", err)
 	}
 
@@ -36,7 +37,7 @@ func TestMessageStore_SetWorkerID(t *testing.T) {
 	s := setupMessageStore(t)
 	ctx := context.Background()
 
-	s.Create(ctx, "msg-1", "feishu:chat1:userA", "feishu", "hello", "", "") //nolint
+	s.Create(ctx, "msg-1", "feishu:chat1:userA", "feishu", "hello", "", "", 0) //nolint
 	if err := s.SetWorkerID(ctx, "msg-1", "worker-abc"); err != nil {
 		t.Fatalf("SetWorkerID: %v", err)
 	}
@@ -46,7 +47,7 @@ func TestMessageStore_SetStatus(t *testing.T) {
 	s := setupMessageStore(t)
 	ctx := context.Background()
 
-	s.Create(ctx, "msg-1", "feishu:chat1:userA", "feishu", "hello", "", "") //nolint
+	s.Create(ctx, "msg-1", "feishu:chat1:userA", "feishu", "hello", "", "", 0) //nolint
 	if err := s.SetStatus(ctx, "msg-1", "debouncing"); err != nil {
 		t.Fatalf("SetStatus: %v", err)
 	}
@@ -56,8 +57,8 @@ func TestMessageStore_UpdateStatusBatch(t *testing.T) {
 	s := setupMessageStore(t)
 	ctx := context.Background()
 
-	s.Create(ctx, "msg-1", "feishu:chat1:userA", "feishu", "a", "", "") //nolint
-	s.Create(ctx, "msg-2", "feishu:chat1:userA", "feishu", "b", "", "") //nolint
+	s.Create(ctx, "msg-1", "feishu:chat1:userA", "feishu", "a", "", "", 0) //nolint
+	s.Create(ctx, "msg-2", "feishu:chat1:userA", "feishu", "b", "", "", 0) //nolint
 
 	if err := s.UpdateStatusBatch(ctx, []string{"msg-1", "msg-2"}, "debouncing"); err != nil {
 		t.Fatalf("UpdateStatusBatch: %v", err)
@@ -68,9 +69,9 @@ func TestMessageStore_MarkMerged(t *testing.T) {
 	s := setupMessageStore(t)
 	ctx := context.Background()
 
-	s.Create(ctx, "msg-1", "feishu:chat1:userA", "feishu", "msg1", "", "") //nolint
-	s.Create(ctx, "msg-2", "feishu:chat1:userA", "feishu", "msg2", "", "") //nolint
-	s.Create(ctx, "msg-3", "feishu:chat1:userA", "feishu", "msg3", "", "") //nolint
+	s.Create(ctx, "msg-1", "feishu:chat1:userA", "feishu", "msg1", "", "", 0) //nolint
+	s.Create(ctx, "msg-2", "feishu:chat1:userA", "feishu", "msg2", "", "", 0) //nolint
+	s.Create(ctx, "msg-3", "feishu:chat1:userA", "feishu", "msg3", "", "", 0) //nolint
 
 	if err := s.MarkMerged(ctx, "msg-1", []string{"msg-2", "msg-3"}); err != nil {
 		t.Fatalf("MarkMerged: %v", err)
@@ -81,7 +82,7 @@ func TestMessageStore_MarkTerminal_Done(t *testing.T) {
 	s := setupMessageStore(t)
 	ctx := context.Background()
 
-	s.Create(ctx, "msg-1", "feishu:chat1:userA", "feishu", "hello", "", "") //nolint
+	s.Create(ctx, "msg-1", "feishu:chat1:userA", "feishu", "hello", "", "", 0) //nolint
 	if err := s.MarkTerminal(ctx, []string{"msg-1"}, "done"); err != nil {
 		t.Fatalf("MarkTerminal done: %v", err)
 	}
@@ -91,7 +92,7 @@ func TestMessageStore_MarkTerminal_Failed(t *testing.T) {
 	s := setupMessageStore(t)
 	ctx := context.Background()
 
-	s.Create(ctx, "msg-1", "feishu:chat1:userA", "feishu", "hello", "", "") //nolint
+	s.Create(ctx, "msg-1", "feishu:chat1:userA", "feishu", "hello", "", "", 0) //nolint
 	if err := s.MarkTerminal(ctx, []string{"msg-1"}, "failed"); err != nil {
 		t.Fatalf("MarkTerminal failed: %v", err)
 	}
@@ -102,14 +103,14 @@ func TestMessageStore_GetUnfinished(t *testing.T) {
 	ctx := context.Background()
 
 	// received — no worker_id, should be excluded
-	s.Create(ctx, "msg-received", "feishu:chat1:userA", "feishu", "received", "", "") //nolint
+	s.Create(ctx, "msg-received", "feishu:chat1:userA", "feishu", "received", "", "", 0) //nolint
 
 	// routed — has worker_id, should be returned
-	s.Create(ctx, "msg-routed", "feishu:chat1:userA", "feishu", "routed", "", "") //nolint
+	s.Create(ctx, "msg-routed", "feishu:chat1:userA", "feishu", "routed", "", "", 0) //nolint
 	s.SetWorkerID(ctx, "msg-routed", "worker-1")
 
 	// done — terminal, should be excluded
-	s.Create(ctx, "msg-done", "feishu:chat1:userA", "feishu", "done", "", "") //nolint
+	s.Create(ctx, "msg-done", "feishu:chat1:userA", "feishu", "done", "", "", 0) //nolint
 	s.SetWorkerID(ctx, "msg-done", "worker-1")
 	s.MarkTerminal(ctx, []string{"msg-done"}, "done")
 
@@ -142,7 +143,7 @@ func TestMessageStore_GetSession_AfterExecution(t *testing.T) {
 	s := setupMessageStore(t)
 	ctx := context.Background()
 
-	s.Create(ctx, "msg-1", "feishu:chat1:userA", "feishu", "hello", "", "") //nolint
+	s.Create(ctx, "msg-1", "feishu:chat1:userA", "feishu", "hello", "", "", 0) //nolint
 	s.SetWorkerID(ctx, "msg-1", "worker-abc")
 	if err := s.SetExecution(ctx, "msg-1", "exec-1", "sess-1"); err != nil {
 		t.Fatalf("SetExecution: %v", err)
@@ -177,7 +178,7 @@ func TestMessageStore_SetExecution(t *testing.T) {
 	s := setupMessageStore(t)
 	ctx := context.Background()
 
-	s.Create(ctx, "msg-1", "feishu:chat1:userA", "feishu", "hello", "", "") //nolint
+	s.Create(ctx, "msg-1", "feishu:chat1:userA", "feishu", "hello", "", "", 0) //nolint
 	if err := s.SetExecution(ctx, "msg-1", "exec-42", "sess-42"); err != nil {
 		t.Fatalf("SetExecution: %v", err)
 	}
@@ -200,7 +201,7 @@ func TestMessageStore_GetSession_AfterClear(t *testing.T) {
 	s := setupMessageStore(t)
 	ctx := context.Background()
 
-	s.Create(ctx, "msg-1", "feishu:chat1:userA", "feishu", "hello", "", "") //nolint
+	s.Create(ctx, "msg-1", "feishu:chat1:userA", "feishu", "hello", "", "", 0) //nolint
 	s.SetWorkerID(ctx, "msg-1", "worker-abc")
 	s.SetExecution(ctx, "msg-1", "exec-1", "sess-1")
 	s.MarkTerminal(ctx, []string{"msg-1"}, "done")
@@ -223,7 +224,7 @@ func TestMessageStore_GetSession_FirstMessageNoExecution(t *testing.T) {
 	ctx := context.Background()
 
 	// message exists but SetExecution hasn't been called yet
-	s.Create(ctx, "msg-1", "feishu:chat1:userA", "feishu", "hello", "", "") //nolint
+	s.Create(ctx, "msg-1", "feishu:chat1:userA", "feishu", "hello", "", "", 0) //nolint
 	s.SetWorkerID(ctx, "msg-1", "worker-abc")
 
 	sess, err := s.GetSession(ctx, "feishu:chat1:userA")
@@ -259,7 +260,7 @@ func TestMessageStore_Create_Dedup_FirstInsertReturnsTrue(t *testing.T) {
 	s := setupMessageStore(t)
 	ctx := context.Background()
 
-	inserted, err := s.Create(ctx, "msg-1", "feishu:chat1:userA", "feishu", "hello", "", "feishu-msg-abc")
+	inserted, err := s.Create(ctx, "msg-1", "feishu:chat1:userA", "feishu", "hello", "", "feishu-msg-abc", 0)
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
@@ -272,8 +273,8 @@ func TestMessageStore_Create_Dedup_DuplicatePlatformMsgID(t *testing.T) {
 	s := setupMessageStore(t)
 	ctx := context.Background()
 
-	s.Create(ctx, "msg-1", "feishu:chat1:userA", "feishu", "hello", "", "feishu-msg-abc") //nolint
-	inserted, err := s.Create(ctx, "msg-2", "feishu:chat1:userA", "feishu", "hello", "", "feishu-msg-abc")
+	s.Create(ctx, "msg-1", "feishu:chat1:userA", "feishu", "hello", "", "feishu-msg-abc", 0) //nolint
+	inserted, err := s.Create(ctx, "msg-2", "feishu:chat1:userA", "feishu", "hello", "", "feishu-msg-abc", 0)
 	if err != nil {
 		t.Fatalf("duplicate Create: %v", err)
 	}
@@ -286,11 +287,11 @@ func TestMessageStore_Create_Dedup_EmptyPlatformMsgIDNotDeduped(t *testing.T) {
 	s := setupMessageStore(t)
 	ctx := context.Background()
 
-	inserted1, err := s.Create(ctx, "msg-1", "feishu:chat1:userA", "feishu", "hello", "", "")
+	inserted1, err := s.Create(ctx, "msg-1", "feishu:chat1:userA", "feishu", "hello", "", "", 0)
 	if err != nil || !inserted1 {
 		t.Fatalf("first empty-id insert: err=%v inserted=%v", err, inserted1)
 	}
-	inserted2, err := s.Create(ctx, "msg-2", "feishu:chat1:userA", "feishu", "hello", "", "")
+	inserted2, err := s.Create(ctx, "msg-2", "feishu:chat1:userA", "feishu", "hello", "", "", 0)
 	if err != nil || !inserted2 {
 		t.Fatalf("second empty-id insert: err=%v inserted=%v", err, inserted2)
 	}
@@ -300,7 +301,7 @@ func TestMessageStore_MarkTerminal_ProcessedAtMillisecondPrecision(t *testing.T)
 	s := setupMessageStore(t)
 	ctx := context.Background()
 
-	s.Create(ctx, "msg-1", "feishu:chat1:userA", "feishu", "hello", "", "") //nolint
+	s.Create(ctx, "msg-1", "feishu:chat1:userA", "feishu", "hello", "", "", 0) //nolint
 	if err := s.MarkTerminal(ctx, []string{"msg-1"}, "done"); err != nil {
 		t.Fatalf("MarkTerminal: %v", err)
 	}
@@ -321,7 +322,7 @@ func TestMessageStore_Create_ReceivedAtMillisecondPrecision(t *testing.T) {
 	s := setupMessageStore(t)
 	ctx := context.Background()
 
-	s.Create(ctx, "msg-ms", "feishu:chat1:userA", "feishu", "hello", "", "") //nolint
+	s.Create(ctx, "msg-ms", "feishu:chat1:userA", "feishu", "hello", "", "", 0) //nolint
 
 	var receivedAt int64
 	err := s.db.QueryRowContext(ctx,
@@ -332,6 +333,49 @@ func TestMessageStore_Create_ReceivedAtMillisecondPrecision(t *testing.T) {
 	}
 	if receivedAt <= 0 {
 		t.Errorf("received_at %d: want positive Unix millisecond timestamp", receivedAt)
+	}
+}
+
+func TestMessageStore_Create_ReceivedAt_FromMessageTime(t *testing.T) {
+	s := setupMessageStore(t)
+	ctx := context.Background()
+
+	const wantTime int64 = 1609073151345 // fixed past timestamp
+	inserted, err := s.Create(ctx, "msg-ts", "feishu:chat1:userA", "feishu", "hello", "", "", wantTime)
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if !inserted {
+		t.Fatal("expected inserted=true")
+	}
+
+	var receivedAt int64
+	if err := s.db.QueryRowContext(ctx,
+		`SELECT received_at FROM platform_messages WHERE id = ?`, "msg-ts",
+	).Scan(&receivedAt); err != nil {
+		t.Fatalf("scan received_at: %v", err)
+	}
+	if receivedAt != wantTime {
+		t.Errorf("received_at: got %d, want %d", receivedAt, wantTime)
+	}
+}
+
+func TestMessageStore_Create_ReceivedAt_FallbackToServerTime(t *testing.T) {
+	s := setupMessageStore(t)
+	ctx := context.Background()
+
+	before := time.Now().UnixMilli()
+	s.Create(ctx, "msg-zero", "feishu:chat1:userA", "feishu", "hello", "", "", 0) //nolint
+	after := time.Now().UnixMilli()
+
+	var receivedAt int64
+	if err := s.db.QueryRowContext(ctx,
+		`SELECT received_at FROM platform_messages WHERE id = ?`, "msg-zero",
+	).Scan(&receivedAt); err != nil {
+		t.Fatalf("scan received_at: %v", err)
+	}
+	if receivedAt < before || receivedAt > after {
+		t.Errorf("received_at %d: want value between %d and %d (server time range)", receivedAt, before, after)
 	}
 }
 
