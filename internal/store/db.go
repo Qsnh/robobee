@@ -137,6 +137,41 @@ var migrations = []migration{
 		name:    "20260312000006_workers_rename",
 		sql:     `ALTER TABLE workers_new RENAME TO workers`,
 	},
+	{
+		version: 16,
+		name:    "20260312000001_create_table_tasks",
+		sql: `CREATE TABLE IF NOT EXISTS tasks (
+        id                TEXT PRIMARY KEY,
+        message_id        TEXT NOT NULL REFERENCES platform_messages(id),
+        worker_id         TEXT NOT NULL REFERENCES workers(id),
+        instruction       TEXT NOT NULL,
+        type              TEXT NOT NULL CHECK(type IN ('immediate','countdown','scheduled')),
+        status            TEXT NOT NULL DEFAULT 'pending'
+                              CHECK(status IN ('pending','running','completed','failed','cancelled')),
+        scheduled_at      INTEGER,
+        cron_expr         TEXT NOT NULL DEFAULT '',
+        next_run_at       INTEGER,
+        reply_session_key TEXT NOT NULL DEFAULT '',
+        execution_id      TEXT NOT NULL DEFAULT '',
+        created_at        INTEGER NOT NULL,
+        updated_at        INTEGER NOT NULL
+    )`,
+	},
+	{
+		version: 17,
+		name:    "20260312000002_idx_tasks_status_type",
+		sql:     `CREATE INDEX IF NOT EXISTS idx_tasks_status_type ON tasks(status, type)`,
+	},
+	{
+		version: 18,
+		name:    "20260312000003_idx_tasks_message_id",
+		sql:     `CREATE INDEX IF NOT EXISTS idx_tasks_message_id ON tasks(message_id)`,
+	},
+	{
+		version: 19,
+		name:    "20260312000004_idx_tasks_worker_id",
+		sql:     `CREATE INDEX IF NOT EXISTS idx_tasks_worker_id ON tasks(worker_id)`,
+	},
 }
 
 func InitDB(dbPath string) (*sql.DB, error) {

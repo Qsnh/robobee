@@ -84,6 +84,24 @@ func TestMigrations_TableExists(t *testing.T) {
 	}
 }
 
+func TestInitDB_TasksTable(t *testing.T) {
+	db, err := InitDB(t.TempDir() + "/test.db")
+	if err != nil {
+		t.Fatalf("InitDB: %v", err)
+	}
+	defer db.Close()
+
+	db.Exec(`INSERT INTO workers (id,name,work_dir,status,created_at,updated_at) VALUES ('w1','W','/','idle',1,1)`)
+	db.Exec(`INSERT INTO platform_messages (id,session_key,platform,content,received_at) VALUES ('m1','sk','p','c',1)`)
+
+	_, err = db.Exec(`INSERT INTO tasks
+		(id, message_id, worker_id, instruction, type, created_at, updated_at)
+		VALUES ('t1','m1','w1','do it','immediate',1,1)`)
+	if err != nil {
+		t.Fatalf("tasks table not created: %v", err)
+	}
+}
+
 func TestMigrations_SkipsApplied(t *testing.T) {
 	dbPath := t.TempDir() + "/test.db"
 	db, err := InitDB(dbPath)
