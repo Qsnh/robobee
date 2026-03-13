@@ -1,0 +1,140 @@
+package claudemd_test
+
+import (
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"github.com/robobee/core/internal/claudemd"
+)
+
+func TestEnsureSystemRules_WritesBeeRules(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "CLAUDE.md"), []byte("# Bee\n"), 0644)
+
+	if err := claudemd.EnsureSystemRules(dir, claudemd.RoleBee); err != nil {
+		t.Fatalf("EnsureSystemRules: %v", err)
+	}
+
+	data, err := os.ReadFile(filepath.Join(dir, ".robobee.claude.md"))
+	if err != nil {
+		t.Fatalf("read .robobee.claude.md: %v", err)
+	}
+	content := string(data)
+
+	if !strings.Contains(content, "任务通知规范") {
+		t.Error("missing shared rules (任务通知规范)")
+	}
+	if !strings.Contains(content, "send_message") {
+		t.Error("missing send_message reference in shared rules")
+	}
+	if !strings.Contains(content, "清除上下文处理") {
+		t.Error("missing bee-specific rules (清除上下文处理)")
+	}
+	if strings.Contains(content, "mark_task_success") {
+		t.Error("bee rules should not contain worker-specific mark_task_success")
+	}
+}
+
+func TestEnsureSystemRules_WritesWorkerRules(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "CLAUDE.md"), []byte("# Worker\n"), 0644)
+
+	if err := claudemd.EnsureSystemRules(dir, claudemd.RoleWorker); err != nil {
+		t.Fatalf("EnsureSystemRules: %v", err)
+	}
+
+	data, err := os.ReadFile(filepath.Join(dir, ".robobee.claude.md"))
+	if err != nil {
+		t.Fatalf("read .robobee.claude.md: %v", err)
+	}
+	content := string(data)
+
+	if !strings.Contains(content, "任务通知规范") {
+		t.Error("missing shared rules")
+	}
+	if !strings.Contains(content, "mark_task_success") {
+		t.Error("missing worker-specific rules (mark_task_success)")
+	}
+	if !strings.Contains(content, "mark_task_failed") {
+		t.Error("missing worker-specific rules (mark_task_failed)")
+	}
+	if strings.Contains(content, "清除上下文处理") {
+		t.Error("worker rules should not contain bee-specific 清除上下文处理")
+	}
+}
+
+func TestEnsureSystemRules_AppendsImportWhenMissing(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "CLAUDE.md"), []byte("# My Bot\n\nSome user content\n"), 0644)
+
+	if err := claudemd.EnsureSystemRules(dir, claudemd.RoleWorker); err != nil {
+		t.Fatalf("EnsureSystemRules: %v", err)
+	}
+
+	data, err := os.ReadFile(filepath.Join(dir, "CLAUDE.md"))
+	if err != nil {
+		t.Fatalf("read CLAUDE.md: %v", err)
+	}
+	content := string(data)
+
+	if !strings.Contains(content, "@.robobee.claude.md") {
+		t.Error("CLAUDE.md should contain @.robobee.claude.md import")
+	}
+	if !strings.Contains(content, "# My Bot") {
+		t.Error("original CLAUDE.md content should be preserved")
+	}
+	if !strings.Contains(content, "Some user content") {
+		t.Error("user content should be preserved")
+	}
+}
+
+func TestEnsureSystemRules_DoesNotDuplicateImport(t *testing.T) {
+	dir := t.TempDir()
+	original := "# My Bot\n\n@.robobee.claude.md\n"
+	os.WriteFile(filepath.Join(dir, "CLAUDE.md"), []byte(original), 0644)
+
+	if err := claudemd.EnsureSystemRules(dir, claudemd.RoleWorker); err != nil {
+		t.Fatalf("EnsureSystemRules: %v", err)
+	}
+
+	data, _ := os.ReadFile(filepath.Join(dir, "CLAUDE.md"))
+	if string(data) != original {
+		t.Errorf("CLAUDE.md should not be modified when import already exists.\nGot: %q\nWant: %q", string(data), original)
+	}
+}
+
+func TestEnsureSystemRules_SkipsWhenNoCLAUDEMD(t *testing.T) {
+	dir := t.TempDir()
+
+	if err := claudemd.EnsureSystemRules(dir, claudemd.RoleWorker); err != nil {
+		t.Fatalf("EnsureSystemRules: %v", err)
+	}
+
+	if _, err := os.Stat(filepath.Join(dir, ".robobee.claude.md")); err != nil {
+		t.Error(".robobee.claude.md should be created even without CLAUDE.md")
+	}
+
+	if _, err := os.Stat(filepath.Join(dir, "CLAUDE.md")); err == nil {
+		t.Error("CLAUDE.md should not be created by EnsureSystemRules")
+	}
+}
+
+func TestEnsureSystemRules_OverwritesExistingRulesFile(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "CLAUDE.md"), []byte("# Bot\n"), 0644)
+	os.WriteFile(filepath.Join(dir, ".robobee.claude.md"), []byte("old content"), 0644)
+
+	if err := claudemd.EnsureSystemRules(dir, claudemd.RoleWorker); err != nil {
+		t.Fatalf("EnsureSystemRules: %v", err)
+	}
+
+	data, _ := os.ReadFile(filepath.Join(dir, ".robobee.claude.md"))
+	if string(data) == "old content" {
+		t.Error(".robobee.claude.md should be overwritten with latest rules")
+	}
+	if !strings.Contains(string(data), "任务通知规范") {
+		t.Error("overwritten file should contain latest rules")
+	}
+}
