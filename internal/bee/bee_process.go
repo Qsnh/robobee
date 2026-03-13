@@ -36,11 +36,14 @@ func WriteCLAUDEMD(workDir, persona string) error {
 // If sessionID is non-empty and resume is false, passes --session-id <sessionID>.
 // Returns nil on exit code 0, an error otherwise.
 func (p *BeeProcess) Run(ctx context.Context, workDir, prompt, sessionID string, resume bool) error {
+	mcpConfig := fmt.Sprintf(
+		`{"mcpServers":{"robobee":{"url":%q,"headers":{"Authorization":"Bearer %s"}}}}`,
+		p.mcpURL, p.apiKey,
+	)
 	args := []string{
 		"--dangerously-skip-permissions",
 		"--output-format", "stream-json",
-		"--mcp-server", "robobee=" + p.mcpURL,
-		"--mcp-api-key", p.apiKey,
+		"--mcp-config", mcpConfig,
 		"-p", prompt,
 	}
 	if sessionID != "" {
