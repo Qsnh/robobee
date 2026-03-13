@@ -2,6 +2,7 @@ package dispatcher_test
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -192,6 +193,45 @@ func TestDispatcher_ImmediateTask_FreshWhenNoSession(t *testing.T) {
 	}
 }
 
+func TestDispatcher_ImmediateTask_ResumeFails_FallsBackToFresh(t *testing.T) {
+	ss := newMockSessionStore()
+	ss.data["s1|w1"] = "broken-session-id"
+
+	// Manager returns error on ExecuteWorkerWithSession, succeeds on ExecuteWorker
+	mgr := &fallbackExecManager{
+		freshResult: model.WorkerExecution{ID: "exec-fresh", SessionID: "new-session"},
+		getResult:   model.WorkerExecution{ID: "exec-fresh", Status: model.ExecStatusCompleted, Result: "fallback-ok"},
+	}
+	d, in := newDispatcher(mgr, ss)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go d.Run(ctx)
+
+	in <- dispatchTask("immediate", "s1", "w1", "message after broken session")
+	events := collectEvents(d.Out(), 2, 2*time.Second)
+
+	// Should still get ACK + result
+	if len(events) < 2 {
+		t.Fatalf("expected ACK+Result even after resume failure, got %d events", len(events))
+	}
+	resultEvents := 0
+	for _, e := range events {
+		if e.Type == msgsender.SenderEventResult && e.Content == "fallback-ok" {
+			resultEvents++
+		}
+	}
+	if resultEvents == 0 {
+		t.Error("expected fallback result 'fallback-ok' in events")
+	}
+
+	// Stale session should be cleared
+	time.Sleep(50 * time.Millisecond)
+	if len(ss.cleared) == 0 {
+		t.Error("expected ClearSessionContexts called after resume failure")
+	}
+}
+
 func TestDispatcher_TwoTasks_SameSession_Serialized(t *testing.T) {
 	blocker := make(chan struct{})
 	mgr := &blockingExecManager{blocker: blocker}
@@ -251,4 +291,19 @@ func (m *blockingExecManager) ExecuteWorkerWithSession(_ context.Context, _, _, 
 }
 func (m *blockingExecManager) GetExecution(_ string) (model.WorkerExecution, error) {
 	return model.WorkerExecution{ID: "exec-x", Status: model.ExecStatusCompleted, Result: "ok"}, nil
+}
+
+type fallbackExecManager struct {
+	freshResult model.WorkerExecution
+	getResult   model.WorkerExecution
+}
+
+func (m *fallbackExecManager) ExecuteWorker(_ context.Context, _, _ string) (model.WorkerExecution, error) {
+	return m.freshResult, nil
+}
+func (m *fallbackExecManager) ExecuteWorkerWithSession(_ context.Context, _, _, _ string) (model.WorkerExecution, error) {
+	return model.WorkerExecution{}, fmt.Errorf("session broken")
+}
+func (m *fallbackExecManager) GetExecution(_ string) (model.WorkerExecution, error) {
+	return m.getResult, nil
 }

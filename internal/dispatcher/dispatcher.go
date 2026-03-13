@@ -178,6 +178,11 @@ func (d *Dispatcher) executeAsync(ctx context.Context, key string, task Dispatch
 			exec, err = d.manager.ExecuteWorkerWithSession(ctx, task.WorkerID, task.Instruction, sessionID)
 			if err != nil {
 				log.Printf("dispatcher: resume error (falling back to fresh): %v", err)
+				// Clear the stale session context so future invocations start fresh
+				// rather than retrying the same broken session indefinitely.
+				if clearErr := d.sessionStore.ClearSessionContexts(ctx, task.SessionKey); clearErr != nil {
+					log.Printf("dispatcher: clear stale session contexts for %s: %v", task.SessionKey, clearErr)
+				}
 				exec, err = d.manager.ExecuteWorker(ctx, task.WorkerID, task.Instruction)
 			}
 			goto execStarted
