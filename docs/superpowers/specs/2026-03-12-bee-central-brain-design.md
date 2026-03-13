@@ -261,7 +261,8 @@ ticker fires (every 10s)
 BEGIN TRANSACTION
   SELECT tasks WHERE status='pending' AND due (as above)
   UPDATE immediate/countdown tasks: status → running
-  UPDATE scheduled tasks: next_run_at → next occurrence after now
+  UPDATE scheduled tasks: next_run_at → next occurrence after time.Now() via robfig/cron
+    (miss policy: skip — compute from now, not from the missed next_run_at; at most one fire per poll tick)
 COMMIT
     ↓
 For each task from the committed set:
@@ -270,7 +271,7 @@ For each task from the committed set:
    recovered on next startup reset — at-least-once semantics)
 ```
 
-**Atomicity rule:** Status updates happen in the DB transaction *before* tasks are sent to the Dispatcher channel. A crash between commit and channel-send leaves the task in `running` (for immediate/countdown) or with an advanced `next_run_at` (for scheduled); both are recovered correctly on next startup. This prevents the same task from being dispatched twice due to a pre-update crash.
+**Atomicity rule:** Status updates happen in the DB transaction *before* tasks are sent to the Dispatcher channel. A crash between commit and channel-send leaves the task in `running` (for immediate/countdown) or with an advanced `next_run_at` (for scheduled). On the next startup, the TaskScheduler startup recovery resets `running → pending`, which causes the task to be re-dispatched on the first poll tick. This provides **at-least-once** delivery: a task may fire more than once in the crash case, but it will never be silently lost. Workers must be written with this in mind (idempotent where possible).
 
 ### Startup Recovery
 
@@ -281,6 +282,7 @@ On server start, TaskScheduler runs **after the Feeder startup reset completes**
 ### Scheduled Task Lifecycle
 
 - A `scheduled` task runs indefinitely until explicitly cancelled via `cancel_task`.
+- `next_run_at` is computed by the **TaskScheduler** during the atomic dispatch transaction (not by the Dispatcher or after execution completes). The scheduler advances `next_run_at` at the moment of dispatch, not at the moment of completion.
 - If a `scheduled` task's worker is deleted, all `pending` and `running` tasks for that worker transition to `cancelled`.
 - If dispatch fails permanently (e.g., worker not found at dispatch time), the task transitions to `failed` and does not re-trigger.
 
