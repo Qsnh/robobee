@@ -217,6 +217,112 @@ func (s *MessageStore) InsertClearSentinel(ctx context.Context, id, sessionKey, 
 }
 
 // CreateBatch inserts multiple message rows in a single transaction using
+// ClaimedMessage is a platform_messages row claimed by the Feeder.
+type ClaimedMessage struct {
+	ID         string
+	SessionKey string
+	Platform   string
+	Content    string
+}
+
+// ClaimBatch atomically selects up to batchSize 'received' messages and marks them 'feeding'.
+func (s *MessageStore) ClaimBatch(ctx context.Context, batchSize int) ([]ClaimedMessage, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, fmt.Errorf("begin tx: %w", err)
+	}
+	defer tx.Rollback() //nolint:errcheck
+
+	rows, err := tx.QueryContext(ctx,
+		`SELECT id, session_key, platform, content FROM platform_messages
+         WHERE status = 'received'
+         ORDER BY received_at ASC LIMIT ?`, batchSize)
+	if err != nil {
+		return nil, fmt.Errorf("select batch: %w", err)
+	}
+	var msgs []ClaimedMessage
+	for rows.Next() {
+		var m ClaimedMessage
+		if err := rows.Scan(&m.ID, &m.SessionKey, &m.Platform, &m.Content); err != nil {
+			rows.Close()
+			return nil, fmt.Errorf("scan: %w", err)
+		}
+		msgs = append(msgs, m)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if len(msgs) == 0 {
+		return nil, nil
+	}
+
+	ids := make([]string, len(msgs))
+	for i, m := range msgs {
+		ids[i] = m.ID
+	}
+	placeholders := strings.Repeat("?,", len(ids))
+	placeholders = placeholders[:len(placeholders)-1]
+	args := make([]any, 0, len(ids)+1)
+	args = append(args, "feeding")
+	for _, id := range ids {
+		args = append(args, id)
+	}
+	if _, err := tx.ExecContext(ctx,
+		`UPDATE platform_messages SET status = ? WHERE id IN (`+placeholders+`)`, args...); err != nil {
+		return nil, fmt.Errorf("update feeding: %w", err)
+	}
+	return msgs, tx.Commit()
+}
+
+// MarkBeeProcessed sets status to 'bee_processed' for the given message IDs.
+func (s *MessageStore) MarkBeeProcessed(ctx context.Context, ids []string) error {
+	return s.UpdateStatusBatch(ctx, ids, "bee_processed")
+}
+
+// ResetFeedingBatch restores 'feeding' messages back to 'received'.
+func (s *MessageStore) ResetFeedingBatch(ctx context.Context, ids []string) error {
+	return s.UpdateStatusBatch(ctx, ids, "received")
+}
+
+// ResetFeedingToReceived resets all messages stuck in 'feeding' back to 'received'.
+// Returns the IDs of affected rows so the caller can delete orphaned pending tasks.
+func (s *MessageStore) ResetFeedingToReceived(ctx context.Context) ([]string, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT id FROM platform_messages WHERE status = 'feeding'`)
+	if err != nil {
+		return nil, fmt.Errorf("select feeding: %w", err)
+	}
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if len(ids) == 0 {
+		return nil, nil
+	}
+	if err := s.UpdateStatusBatch(ctx, ids, "received"); err != nil {
+		return nil, fmt.Errorf("reset feeding: %w", err)
+	}
+	return ids, nil
+}
+
+// CountReceived returns the number of messages with status 'received'.
+func (s *MessageStore) CountReceived(ctx context.Context) (int, error) {
+	var count int
+	err := s.db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM platform_messages WHERE status = 'received'`).Scan(&count)
+	return count, err
+}
+
 // INSERT OR IGNORE. Returns the number of rows actually inserted.
 // MessageTime is used as received_at; falls back to time.Now().UnixMilli() if zero.
 func (s *MessageStore) CreateBatch(ctx context.Context, msgs []BatchMsg) (int64, error) {
