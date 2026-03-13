@@ -60,7 +60,7 @@ func (a *App) Run() {
 // buildApp wires all components together. Returns a ready-to-run App.
 func buildApp(cfg config.Config) (*App, error) {
 	if cfg.MCP.APIKey == "" {
-		log.Fatal("mcp.api_key must be set — bee requires MCP to create tasks")
+		return nil, fmt.Errorf("mcp.api_key must be set — bee requires MCP to create tasks")
 	}
 
 	db, s, err := buildStores(cfg.Database)
