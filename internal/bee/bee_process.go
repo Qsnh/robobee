@@ -30,35 +30,17 @@ func NewBeeProcess(cfg config.BeeConfig) *BeeProcess {
 	}
 }
 
-const clearInstructions = `
-
-## 清除上下文处理
-
-当用户发送的消息表示想要清除/重置对话（例如"clear"、"清除"、"重置上下文"等）时：
-
-1. 首先调用 list_tasks，传入 session_key 和 status "pending,running" 检查是否有活跃任务。
-
-2. 如果没有活跃任务：
-   - 调用 clear_session，传入 session_key
-   - 调用 send_message 确认："已清除会话上下文。"
-
-3. 如果有活跃任务：
-   - 调用 send_message 告知用户："当前有 N 个任务正在处理中，清除上下文将终止这些任务。是否确认清除？"
-   - 等待用户下一条消息。
-
-4. 如果用户确认（再次发送 "clear" 或类似确认消息）：
-   - 调用 clear_session（将自动取消所有任务、终止运行中的 worker 进程、清除所有会话上下文）
-   - 调用 send_message 确认："已终止所有任务并清除会话上下文。"
-`
-
-// WriteCLAUDEMD writes (or overwrites) the CLAUDE.md file in workDir with persona content.
+// WriteCLAUDEMD creates the CLAUDE.md file in workDir with persona content
+// only if it does not already exist. This preserves any user edits.
 func WriteCLAUDEMD(workDir, persona string) error {
 	if err := os.MkdirAll(workDir, 0o755); err != nil {
 		return fmt.Errorf("mkdir bee workdir: %w", err)
 	}
 	path := filepath.Join(workDir, "CLAUDE.md")
-	content := persona + clearInstructions
-	return os.WriteFile(path, []byte(content), 0o644)
+	if _, err := os.Stat(path); err == nil {
+		return nil // already exists, do not overwrite
+	}
+	return os.WriteFile(path, []byte(persona), 0o644)
 }
 
 // Run spawns the bee process with the given prompt and waits for it to exit.

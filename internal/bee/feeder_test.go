@@ -4,6 +4,8 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"os"
+	"path/filepath"
 	"sync"
 	"testing"
 	"time"
@@ -206,5 +208,36 @@ func TestFeeder_MultipleSessionKeys_ProcessedIndependently(t *testing.T) {
 	}
 	if sess1 == sess2 {
 		t.Error("session IDs for different sessionKeys must differ")
+	}
+}
+
+func TestWriteCLAUDEMD_DoesNotOverwriteExisting(t *testing.T) {
+	dir := t.TempDir()
+	original := "user-edited content"
+	os.WriteFile(filepath.Join(dir, "CLAUDE.md"), []byte(original), 0644)
+
+	if err := bee.WriteCLAUDEMD(dir, "new persona"); err != nil {
+		t.Fatal(err)
+	}
+
+	data, _ := os.ReadFile(filepath.Join(dir, "CLAUDE.md"))
+	if string(data) != original {
+		t.Error("WriteCLAUDEMD should not overwrite existing file")
+	}
+}
+
+func TestWriteCLAUDEMD_CreatesWhenMissing(t *testing.T) {
+	dir := t.TempDir()
+
+	if err := bee.WriteCLAUDEMD(dir, "my persona"); err != nil {
+		t.Fatal(err)
+	}
+
+	data, err := os.ReadFile(filepath.Join(dir, "CLAUDE.md"))
+	if err != nil {
+		t.Fatalf("CLAUDE.md should be created: %v", err)
+	}
+	if string(data) != "my persona" {
+		t.Errorf("unexpected content: %q", string(data))
 	}
 }
