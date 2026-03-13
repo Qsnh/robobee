@@ -8,6 +8,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+
+	"github.com/robobee/core/internal/config"
 )
 
 // BeeProcess represents a single short-lived bee Claude invocation.
@@ -18,8 +20,12 @@ type BeeProcess struct {
 }
 
 // NewBeeProcess creates a BeeProcess.
-func NewBeeProcess(binary, mcpURL, apiKey string) *BeeProcess {
-	return &BeeProcess{binary: binary, mcpURL: mcpURL, apiKey: apiKey}
+func NewBeeProcess(cfg config.BeeConfig) *BeeProcess {
+	return &BeeProcess{
+		binary: cfg.Binary,
+		mcpURL: cfg.MCPBaseURL + "/mcp/sse",
+		apiKey: cfg.MCPAPIKey,
+	}
 }
 
 // WriteCLAUDEMD writes (or overwrites) the CLAUDE.md file in workDir with persona content.

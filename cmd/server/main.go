@@ -54,30 +54,12 @@ func main() {
 	}
 	mcpSrv := mcp.NewServer(workerStore, mgr, taskStore)
 
-	// Build MCP base URL for bee process
-	mcpBaseURL := fmt.Sprintf("http://%s:%d", cfg.Server.Host, cfg.Server.Port)
-
 	// Dispatch channel shared between TaskScheduler and Feeder (for clear commands)
 	dispatchCh := make(chan dispatcher.DispatchTask, 128)
 
 	// Startup recovery (synchronous, before goroutines)
-	feederCfg := bee.FeederConfig{
-		Interval:           cfg.Bee.Feeder.Interval,
-		BatchSize:          cfg.Bee.Feeder.BatchSize,
-		Timeout:            cfg.Bee.Feeder.Timeout,
-		QueueWarnThreshold: cfg.Bee.Feeder.QueueWarnThreshold,
-		WorkDir:            cfg.Bee.WorkDir,
-		Persona:            cfg.Bee.Persona,
-		Binary:             cfg.Runtime.ClaudeCode.Binary,
-		MCPBaseURL:         mcpBaseURL,
-		MCPAPIKey:          cfg.MCP.APIKey,
-	}
-	beeProcess := bee.NewBeeProcess(
-		cfg.Runtime.ClaudeCode.Binary,
-		mcpBaseURL+"/mcp/sse",
-		cfg.MCP.APIKey,
-	)
-	feeder := bee.NewFeeder(msgStore, taskStore, sessionStore, beeProcess, dispatchCh, feederCfg)
+	beeProcess := bee.NewBeeProcess(cfg.Bee)
+	feeder := bee.NewFeeder(msgStore, taskStore, sessionStore, beeProcess, dispatchCh, cfg.Bee)
 	feeder.RecoverFeeding(context.Background())
 
 	sched := taskscheduler.New(taskStore, dispatchCh, cfg.Bee.Feeder.Interval)

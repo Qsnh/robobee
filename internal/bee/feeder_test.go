@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/robobee/core/internal/bee"
+	"github.com/robobee/core/internal/config"
 	"github.com/robobee/core/internal/dispatcher"
 	"github.com/robobee/core/internal/store"
 )
@@ -64,13 +65,12 @@ func (m *mockBeeRunner) getCalls() []beeCall {
 
 func newFeeder(ms *store.MessageStore, ts *store.TaskStore, ss *store.SessionStore, runner bee.BeeRunner) *bee.Feeder {
 	clearCh := make(chan dispatcher.DispatchTask, 10)
-	cfg := bee.FeederConfig{
-		Interval:           50 * time.Millisecond,
-		BatchSize:          10,
-		Timeout:            5 * time.Second,
-		QueueWarnThreshold: 100,
-		WorkDir:            "/tmp",
-	}
+	cfg := config.BeeConfig{}
+	cfg.Feeder.Interval = 50 * time.Millisecond
+	cfg.Feeder.BatchSize = 10
+	cfg.Feeder.Timeout = 5 * time.Second
+	cfg.Feeder.QueueWarnThreshold = 100
+	cfg.WorkDir = "/tmp"
 	return bee.NewFeeder(ms, ts, ss, runner, clearCh, cfg)
 }
 
