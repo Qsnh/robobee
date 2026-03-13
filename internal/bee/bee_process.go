@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -37,11 +38,12 @@ func WriteCLAUDEMD(workDir, persona string) error {
 // Returns nil on exit code 0, an error otherwise.
 func (p *BeeProcess) Run(ctx context.Context, workDir, prompt, sessionID string, resume bool) error {
 	mcpConfig := fmt.Sprintf(
-		`{"mcpServers":{"robobee":{"url":%q,"headers":{"Authorization":"Bearer %s"}}}}`,
-		p.mcpURL, p.apiKey,
+		`{"mcpServers":{"robobee":{"type":"sse","url":%q}}}`,
+		p.mcpURL+"?api_key="+url.QueryEscape(p.apiKey),
 	)
 	args := []string{
 		"--dangerously-skip-permissions",
+		"--verbose",
 		"--output-format", "stream-json",
 		"--mcp-config", mcpConfig,
 		"-p", prompt,
