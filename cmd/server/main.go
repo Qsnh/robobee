@@ -11,6 +11,7 @@ import (
 	"github.com/robobee/core/internal/ai"
 	"github.com/robobee/core/internal/api"
 	"github.com/robobee/core/internal/config"
+	"github.com/robobee/core/internal/mcp"
 	"github.com/robobee/core/internal/dispatcher"
 	"github.com/robobee/core/internal/msgingest"
 	"github.com/robobee/core/internal/msgrouter"
@@ -82,8 +83,15 @@ func main() {
 		go p.Receiver().Start(ctx, ingest.Dispatch)
 	}
 
+	// Start MCP server if configured
+	var mcpSrv *mcp.MCPServer
+	if cfg.MCP.APIKey != "" {
+		mcpSrv = mcp.NewServer(workerStore, mgr)
+		log.Println("MCP server enabled at /mcp/sse and /mcp/messages")
+	}
+
 	// Start HTTP API
-	srv := api.NewServer(workerStore, execStore, mgr)
+	srv := api.NewServer(workerStore, execStore, mgr, mcpSrv, cfg.MCP.APIKey)
 
 	// Graceful shutdown
 	quit := make(chan os.Signal, 1)

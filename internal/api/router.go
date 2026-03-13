@@ -3,6 +3,7 @@ package api
 import (
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
+	"github.com/robobee/core/internal/mcp"
 	"github.com/robobee/core/internal/store"
 	"github.com/robobee/core/internal/worker"
 )
@@ -12,18 +13,22 @@ type Server struct {
 	workerStore    *store.WorkerStore
 	executionStore *store.ExecutionStore
 	manager        *worker.Manager
+	mcpServer      *mcp.MCPServer
+	mcpAPIKey      string
 }
 
 func NewServer(
 	ws *store.WorkerStore,
 	es *store.ExecutionStore,
 	mgr *worker.Manager,
+	mcpSrv *mcp.MCPServer,
+	mcpAPIKey string,
 ) *Server {
 	router := gin.Default()
 	router.Use(cors.New(cors.Config{
 		AllowOrigins:     []string{"*"},
 		AllowMethods:     []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
-		AllowHeaders:     []string{"Origin", "Content-Type", "Authorization", "Accept-Language"},
+		AllowHeaders:     []string{"Origin", "Content-Type", "Authorization", "Accept-Language", "X-API-Key"},
 		ExposeHeaders:    []string{"Content-Length"},
 		AllowCredentials: false,
 	}))
@@ -34,6 +39,8 @@ func NewServer(
 		workerStore:    ws,
 		executionStore: es,
 		manager:        mgr,
+		mcpServer:      mcpSrv,
+		mcpAPIKey:      mcpAPIKey,
 	}
 	s.setupRoutes()
 	return s
@@ -64,6 +71,12 @@ func (s *Server) setupRoutes() {
 		api.POST("/executions/:id/reply", s.replyExecution)
 		// WebSocket logs
 		api.GET("/executions/:id/logs", s.streamLogs)
+	}
+
+	// MCP — only registered when an API key is configured
+	if s.mcpServer != nil {
+		mcpGroup := s.router.Group("/mcp")
+		s.mcpServer.RegisterRoutes(mcpGroup, s.mcpAPIKey)
 	}
 }
 
