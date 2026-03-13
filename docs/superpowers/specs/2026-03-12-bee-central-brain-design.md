@@ -77,12 +77,13 @@ CREATE TABLE tasks (
     type         TEXT NOT NULL CHECK(type IN ('immediate','countdown','scheduled')),
     status       TEXT NOT NULL DEFAULT 'pending'
                       CHECK(status IN ('pending','running','completed','failed','cancelled')),
-    scheduled_at INTEGER,      -- milliseconds; countdown: absolute trigger time
-    cron_expr    TEXT,         -- scheduled tasks only (5-field cron)
-    next_run_at  INTEGER,      -- milliseconds; scheduled tasks only, updated after each run
-    execution_id TEXT REFERENCES worker_executions(id),  -- most recent execution
-    created_at   INTEGER NOT NULL,
-    updated_at   INTEGER NOT NULL
+    scheduled_at      INTEGER,  -- milliseconds; countdown: absolute trigger time
+    cron_expr         TEXT,     -- scheduled tasks only (5-field cron)
+    next_run_at       INTEGER,  -- milliseconds; scheduled tasks only, updated after each run
+    reply_session_key TEXT,     -- optional override reply target; required for 'scheduled' type
+    execution_id      TEXT REFERENCES worker_executions(id),  -- most recent execution
+    created_at        INTEGER NOT NULL,
+    updated_at        INTEGER NOT NULL
 );
 
 CREATE INDEX idx_tasks_status_type ON tasks(status, type);
@@ -242,11 +243,11 @@ For `scheduled` tasks, the Go layer parses `cron_expr` using `robfig/cron` and c
 
 ### `create_task` Validation Rules
 
-| `type` | `scheduled_at` | `cron_expr` | Validation |
-|--------|---------------|-------------|-----------|
-| `immediate` | ignored | ignored | Always valid |
-| `countdown` | **required** | ignored | Must be `>= server_now_ms + 5000` (server clock, +5s minimum lead); error if missing or too soon |
-| `scheduled` | ignored | **required** | Must be valid 5-field cron; task created with `status=cancelled` if invalid |
+| `type` | `scheduled_at` | `cron_expr` | `reply_session_key` | Validation |
+|--------|---------------|-------------|---------------------|-----------|
+| `immediate` | ignored | ignored | optional | Always valid |
+| `countdown` | **required** | ignored | optional | `scheduled_at` must be `>= server_now_ms + 5000` (+5s minimum lead); error if missing or too soon |
+| `scheduled` | ignored | **required** | **required** | MCP error if `cron_expr` or `reply_session_key` missing; task created with `status=cancelled` if cron parse fails |
 
 All time validation uses the MCP server's `time.Now().UnixMilli()` (server clock).
 
@@ -257,21 +258,19 @@ A Go goroutine polling the `tasks` table every 10 seconds:
 ```
 ticker fires (every 10s)
     ↓
-Query pending tasks:
-  WHERE status = 'pending'
-    AND (
-      type = 'immediate'
-      OR (type = 'countdown' AND scheduled_at <= now_ms)
-      OR (type = 'scheduled' AND next_run_at <= now_ms)
-    )
+BEGIN TRANSACTION
+  SELECT tasks WHERE status='pending' AND due (as above)
+  UPDATE immediate/countdown tasks: status → running
+  UPDATE scheduled tasks: next_run_at → next occurrence after now
+COMMIT
     ↓
-For each task:
-  ├─ Send DispatchTask to Dispatcher channel
-  ├─ UPDATE status → running  (immediate / countdown)
-  └─ type=scheduled:
-       UPDATE next_run_at = next occurrence after now (via robfig/cron)
-       status remains 'pending' (re-triggered each cycle)
+For each task from the committed set:
+  Send DispatchTask to Dispatcher channel
+  (if ctx cancelled before send, task stays running/pending and will be
+   recovered on next startup reset — at-least-once semantics)
 ```
+
+**Atomicity rule:** Status updates happen in the DB transaction *before* tasks are sent to the Dispatcher channel. A crash between commit and channel-send leaves the task in `running` (for immediate/countdown) or with an advanced `next_run_at` (for scheduled); both are recovered correctly on next startup. This prevents the same task from being dispatched twice due to a pre-update crash.
 
 ### Startup Recovery
 
@@ -306,16 +305,17 @@ type RoutedMessage struct {
 
 // After
 type DispatchTask struct {
-    TaskID      string
-    WorkerID    string
-    SessionKey  string              // original message session_key for reply routing
-    Instruction string              // bee-generated instruction for the worker
-    ReplyTo     platform.InboundMessage  // original inbound message for Sender
-    TaskType    string              // "immediate" | "countdown" | "scheduled"
+    TaskID          string
+    WorkerID        string
+    SessionKey      string                  // original message session_key for reply routing
+    Instruction     string                  // bee-generated instruction for the worker
+    ReplyTo         platform.InboundMessage // original inbound message for Sender
+    TaskType        string                  // "immediate" | "countdown" | "scheduled"
+    ReplySessionKey string                  // from tasks.reply_session_key; overrides ReplyTo session if non-empty
 }
 ```
 
-`ReplyTo` is populated by the TaskScheduler by joining `tasks → platform_messages` at dispatch time.
+`ReplyTo` is populated by the TaskScheduler from the `tasks → platform_messages` join. If `tasks.reply_session_key` is non-empty, the Dispatcher uses it as the delivery session key instead of the one derived from `ReplyTo`.
 
 ### Serialization
 
