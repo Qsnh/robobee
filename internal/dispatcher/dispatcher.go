@@ -55,6 +55,7 @@ type Dispatcher struct {
 	in           <-chan DispatchTask
 	results      chan internalResult
 	queues       map[string]*queueState
+	clearCh      chan string
 }
 
 // New constructs a Dispatcher.
@@ -66,6 +67,7 @@ func New(manager ExecutionManager, taskStore TaskStore, sessionStore SessionStor
 		in:           in,
 		results:      make(chan internalResult, 64),
 		queues:       make(map[string]*queueState),
+		clearCh:      make(chan string, 8),
 	}
 }
 
@@ -81,6 +83,8 @@ func (d *Dispatcher) Run(ctx context.Context) {
 			d.handleInbound(task)
 		case res := <-d.results:
 			d.handleResult(res)
+		case sessionKey := <-d.clearCh:
+			d.clearQueues(sessionKey)
 		case <-ctx.Done():
 			return
 		}
@@ -92,19 +96,6 @@ func queueKey(sessionKey, workerID string) string {
 }
 
 func (d *Dispatcher) handleInbound(task DispatchTask) {
-	if task.TaskType == "clear" {
-		if err := d.sessionStore.ClearSessionContexts(d.ctx, task.SessionKey); err != nil {
-			log.Printf("dispatcher: clear session contexts for %s: %v", task.SessionKey, err)
-		}
-		prefix := task.SessionKey + "|"
-		for key := range d.queues {
-			if strings.HasPrefix(key, prefix) {
-				delete(d.queues, key)
-			}
-		}
-		return
-	}
-
 	key := queueKey(task.SessionKey, task.WorkerID)
 	state, ok := d.queues[key]
 	if !ok {
@@ -124,6 +115,28 @@ func (d *Dispatcher) handleInbound(task DispatchTask) {
 	} else {
 		state.pendingTasks = append(state.pendingTasks, task)
 		state.lastReplyTo = replyTo
+	}
+}
+
+// ClearSession removes all queued tasks for the given session and clears session contexts.
+// Safe to call from any goroutine — uses a buffered channel to signal the Run loop.
+func (d *Dispatcher) ClearSession(sessionKey string) {
+	select {
+	case d.clearCh <- sessionKey:
+	default:
+		log.Printf("dispatcher: clearCh full, dropping clear for %s", sessionKey)
+	}
+}
+
+func (d *Dispatcher) clearQueues(sessionKey string) {
+	prefix := sessionKey + "|"
+	for key := range d.queues {
+		if strings.HasPrefix(key, prefix) {
+			delete(d.queues, key)
+		}
+	}
+	if err := d.sessionStore.ClearSessionContexts(d.ctx, sessionKey); err != nil {
+		log.Printf("dispatcher: clear session contexts for %s: %v", sessionKey, err)
 	}
 }
 

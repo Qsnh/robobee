@@ -167,47 +167,15 @@ func TestDispatcher_InstructionInjection(t *testing.T) {
 	}
 }
 
-func TestDispatcher_InstructionInjection_SkippedWhenNoTaskID(t *testing.T) {
-	mgr := &mockExecManager{
-		execResult: model.WorkerExecution{ID: "exec-1"},
-		getResult:  model.WorkerExecution{ID: "exec-1", Status: model.ExecStatusCompleted},
-	}
-	d, in := newDispatcher(mgr, newMockSessionStore())
-
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	go d.Run(ctx)
-
-	// Clear command has no TaskID
-	in <- dispatcher.DispatchTask{
-		TaskType:   "clear",
-		SessionKey: "s1",
-		ReplyTo:    platform.InboundMessage{Platform: "test", SessionKey: "s1"},
-	}
-
-	// Just verify no panic; clear doesn't call ExecuteWorker
-	time.Sleep(50 * time.Millisecond)
-	mgr.mu.Lock()
-	count := len(mgr.executedInstructions)
-	mgr.mu.Unlock()
-	if count != 0 {
-		t.Errorf("expected 0 executions for clear command, got %d", count)
-	}
-}
-
-func TestDispatcher_ClearTask_ClearsSessionContexts(t *testing.T) {
+func TestDispatcher_ClearSession_ClearsSessionContexts(t *testing.T) {
 	ss := newMockSessionStore()
-	d, in := newDispatcher(&mockExecManager{}, ss)
+	d, _ := newDispatcher(&mockExecManager{}, ss)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	go d.Run(ctx)
 
-	in <- dispatcher.DispatchTask{
-		TaskType:   "clear",
-		SessionKey: "s1",
-		ReplyTo:    platform.InboundMessage{Platform: "test", SessionKey: "s1"},
-	}
+	d.ClearSession("s1")
 
 	// Wait for async clear
 	deadline := time.Now().Add(500 * time.Millisecond)
@@ -225,6 +193,54 @@ func TestDispatcher_ClearTask_ClearsSessionContexts(t *testing.T) {
 	defer ss.mu.Unlock()
 	if len(ss.cleared) == 0 || ss.cleared[0] != "s1" {
 		t.Errorf("expected ClearSessionContexts called with s1, got %v", ss.cleared)
+	}
+}
+
+func TestDispatcher_ClearSession_ClearsQueueAndSessionContexts(t *testing.T) {
+	ss := newMockSessionStore()
+	blocker := make(chan struct{})
+	mgr := &blockingExecManager{blocker: blocker}
+
+	in := make(chan dispatcher.DispatchTask, 4)
+	d := dispatcher.New(mgr, &mockTaskStore{}, ss, in)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go d.Run(ctx)
+
+	// Send a task to create a queue entry
+	t1 := immediateTask("s1", "w1", "first")
+	t1.TaskID = "task-1"
+	in <- t1
+
+	// Wait for first task to start
+	time.Sleep(50 * time.Millisecond)
+
+	// Queue a second task (pending in queue)
+	t2 := immediateTask("s1", "w1", "second")
+	t2.TaskID = "task-2"
+	in <- t2
+	time.Sleep(20 * time.Millisecond)
+
+	// Call ClearSession — should clear the pending queue entry and session contexts
+	d.ClearSession("s1")
+	time.Sleep(50 * time.Millisecond)
+
+	// Unblock the first task
+	close(blocker)
+	time.Sleep(100 * time.Millisecond)
+
+	// Session contexts should have been cleared
+	ss.mu.Lock()
+	cleared := ss.cleared
+	ss.mu.Unlock()
+	if len(cleared) == 0 || cleared[0] != "s1" {
+		t.Errorf("expected ClearSessionContexts called with s1, got %v", cleared)
+	}
+
+	// Second task should NOT have executed (queue was cleared)
+	if atomic.LoadInt64(&mgr.completed) > 1 {
+		t.Errorf("expected at most 1 execution (second should be cleared from queue), got %d", atomic.LoadInt64(&mgr.completed))
 	}
 }
 
