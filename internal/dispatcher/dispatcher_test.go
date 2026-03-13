@@ -2,14 +2,11 @@ package dispatcher_test
 
 import (
 	"context"
-	"errors"
 	"testing"
 	"time"
 
 	"github.com/robobee/core/internal/dispatcher"
 	"github.com/robobee/core/internal/model"
-	"github.com/robobee/core/internal/msgingest"
-	"github.com/robobee/core/internal/msgrouter"
 	"github.com/robobee/core/internal/msgsender"
 	"github.com/robobee/core/internal/platform"
 )
@@ -18,47 +15,39 @@ import (
 
 type mockExecManager struct {
 	execResult model.WorkerExecution
-	execErr    error
 	getResult  model.WorkerExecution
-	calls      int
 }
 
 func (m *mockExecManager) ExecuteWorker(_ context.Context, _, _ string) (model.WorkerExecution, error) {
-	m.calls++
-	return m.execResult, m.execErr
+	return m.execResult, nil
 }
 func (m *mockExecManager) ReplyExecution(_ context.Context, _, _ string) (model.WorkerExecution, error) {
-	return m.execResult, m.execErr
+	return m.execResult, nil
 }
 func (m *mockExecManager) GetExecution(_ string) (model.WorkerExecution, error) {
 	return m.getResult, nil
 }
 
-type mockStore struct{}
+type mockTaskStore struct{}
 
-func (s *mockStore) SetWorkerID(_ context.Context, _, _ string) error          { return nil }
-func (s *mockStore) UpdateStatusBatch(_ context.Context, _ []string, _ string) error { return nil }
-func (s *mockStore) MarkMerged(_ context.Context, _ string, _ []string) error  { return nil }
-func (s *mockStore) MarkTerminal(_ context.Context, _ []string, _ string) error { return nil }
-func (s *mockStore) GetUnfinished(_ context.Context) ([]model.PendingMessage, error) {
-	return nil, nil
-}
-func (s *mockStore) GetSession(_ context.Context, _ string) (*platform.Session, error) {
-	return nil, nil
-}
-func (s *mockStore) SetExecution(_ context.Context, _, _, _ string) error { return nil }
-func (s *mockStore) InsertClearSentinel(_ context.Context, _, _, _ string) error { return nil }
+func (s *mockTaskStore) SetExecution(_ context.Context, _, _, _ string) error { return nil }
 
-func routedMsg(sessionKey, workerID, content string) msgrouter.RoutedMessage {
-	return msgrouter.RoutedMessage{
-		IngestedMessage: msgingest.IngestedMessage{
-			MsgID:      "msg-1",
-			SessionKey: sessionKey,
-			Platform:   "test",
-			Content:    content,
-			ReplyTo:    platform.InboundMessage{Platform: "test", SessionKey: sessionKey},
-		},
-		WorkerID: workerID,
+type mockMsgStore struct{}
+
+func (s *mockMsgStore) GetSession(_ context.Context, _ string) (*platform.Session, error) {
+	return nil, nil // no prior session; tests use fresh execution
+}
+func (s *mockMsgStore) SetMessageExecution(_ context.Context, _, _, _ string) error { return nil }
+
+func dispatchTask(taskType, sessionKey, workerID, instruction string) dispatcher.DispatchTask {
+	return dispatcher.DispatchTask{
+		TaskID:      "task-1",
+		WorkerID:    workerID,
+		SessionKey:  sessionKey,
+		Instruction: instruction,
+		ReplyTo:     platform.InboundMessage{Platform: "test", SessionKey: sessionKey},
+		TaskType:    taskType,
+		MessageID:   "msg-1",
 	}
 }
 
@@ -76,23 +65,19 @@ func collectEvents(out <-chan msgsender.SenderEvent, n int, timeout time.Duratio
 	return events
 }
 
-// --- Tests ---
-
-// TestDispatcher_NormalMessage_EmitsACKThenResult verifies the happy path:
-// one normal message produces ACK immediately, then Result after execution.
-func TestDispatcher_NormalMessage_EmitsACKThenResult(t *testing.T) {
-	in := make(chan msgrouter.RoutedMessage, 1)
+func TestDispatcher_ImmediateTask_EmitsACKThenResult(t *testing.T) {
+	in := make(chan dispatcher.DispatchTask, 1)
 	mgr := &mockExecManager{
 		execResult: model.WorkerExecution{ID: "exec-1", SessionID: "sess-1"},
 		getResult:  model.WorkerExecution{ID: "exec-1", Status: model.ExecStatusCompleted, Result: "done!"},
 	}
-	d := dispatcher.New(mgr, &mockStore{}, in)
+	d := dispatcher.New(mgr, &mockTaskStore{}, &mockMsgStore{}, in)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	go d.Run(ctx)
 
-	in <- routedMsg("s1", "w1", "hello")
+	in <- dispatchTask("immediate", "s1", "w1", "check weather")
 
 	events := collectEvents(d.Out(), 2, 2*time.Second)
 	if len(events) < 2 {
@@ -109,85 +94,48 @@ func TestDispatcher_NormalMessage_EmitsACKThenResult(t *testing.T) {
 	}
 }
 
-// TestDispatcher_RouteError_EmitsError verifies that a RouteErr produces an error event.
-func TestDispatcher_RouteError_EmitsError(t *testing.T) {
-	in := make(chan msgrouter.RoutedMessage, 1)
-	d := dispatcher.New(&mockExecManager{}, &mockStore{}, in)
+func TestDispatcher_ClearTask_EmitsClearResult(t *testing.T) {
+	in := make(chan dispatcher.DispatchTask, 1)
+	d := dispatcher.New(&mockExecManager{}, &mockTaskStore{}, &mockMsgStore{}, in)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	go d.Run(ctx)
 
-	in <- msgrouter.RoutedMessage{
-		IngestedMessage: msgingest.IngestedMessage{
-			MsgID: "m1", SessionKey: "s1", Platform: "test",
-			ReplyTo: platform.InboundMessage{Platform: "test", SessionKey: "s1"},
-		},
-		RouteErr: "❌ 没有找到合适的 Worker",
+	in <- dispatcher.DispatchTask{
+		TaskType:   "clear",
+		SessionKey: "s1",
+		ReplyTo:    platform.InboundMessage{Platform: "test", SessionKey: "s1"},
 	}
 
 	events := collectEvents(d.Out(), 1, 500*time.Millisecond)
-	if len(events) != 1 || events[0].Type != msgsender.SenderEventError {
-		t.Fatalf("expected 1 SenderEventError, got %v", events)
-	}
-}
-
-// TestDispatcher_ClearCommand_CancelsPendingAndEmitsClear verifies that a clear command
-// produces a clear result event.
-func TestDispatcher_ClearCommand_CancelsPendingAndEmitsClear(t *testing.T) {
-	in := make(chan msgrouter.RoutedMessage, 2)
-	d := dispatcher.New(&mockExecManager{execErr: errors.New("never called")}, &mockStore{}, in)
-
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	go d.Run(ctx)
-
-	in <- msgrouter.RoutedMessage{
-		IngestedMessage: msgingest.IngestedMessage{
-			MsgID: "cmd-1", SessionKey: "s1", Platform: "test",
-			Content: "clear", Command: msgingest.CommandClear,
-			ReplyTo: platform.InboundMessage{Platform: "test", SessionKey: "s1"},
-		},
-	}
-
-	events := collectEvents(d.Out(), 1, 500*time.Millisecond)
-	if len(events) != 1 {
-		t.Fatalf("expected 1 event for clear, got %d", len(events))
-	}
-	if events[0].Type != msgsender.SenderEventResult {
-		t.Errorf("expected SenderEventResult for clear, got %v", events[0].Type)
+	if len(events) != 1 || events[0].Type != msgsender.SenderEventResult {
+		t.Fatalf("expected 1 result for clear, got %v", events)
 	}
 	if events[0].Content != "✅ 上下文已重置" {
 		t.Errorf("unexpected clear content: %q", events[0].Content)
 	}
 }
 
-// TestDispatcher_TwoMessages_SameSession_Serialized verifies that a second message
-// for the same session is executed only after the first completes.
-func TestDispatcher_TwoMessages_SameSession_Serialized(t *testing.T) {
-	in := make(chan msgrouter.RoutedMessage, 2)
-
-	execCount := 0
+func TestDispatcher_TwoTasks_SameSession_Serialized(t *testing.T) {
+	in := make(chan dispatcher.DispatchTask, 2)
 	blocker := make(chan struct{})
-	mgr := &blockingExecManager{
-		blocker: blocker,
-		result:  model.WorkerExecution{ID: "exec-1", Status: model.ExecStatusCompleted, Result: "ok"},
-	}
-	d := dispatcher.New(mgr, &mockStore{}, in)
+	mgr := &blockingExecManager{blocker: blocker}
+	d := dispatcher.New(mgr, &mockTaskStore{}, &mockMsgStore{}, in)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	go d.Run(ctx)
 
-	msg1 := routedMsg("s1", "w1", "first")
-	msg1.MsgID = "msg-1"
-	msg2 := routedMsg("s1", "w1", "second")
-	msg2.MsgID = "msg-2"
+	t1 := dispatchTask("immediate", "s1", "w1", "first")
+	t1.TaskID = "task-1"
+	t2 := dispatchTask("immediate", "s1", "w1", "second")
+	t2.TaskID = "task-2"
 
-	in <- msg1
-	in <- msg2
+	in <- t1
+	in <- t2
 
-	// Both should get ACK immediately
+	// Both should get ACK
 	events := collectEvents(d.Out(), 2, 500*time.Millisecond)
 	ackCount := 0
 	for _, e := range events {
@@ -196,20 +144,13 @@ func TestDispatcher_TwoMessages_SameSession_Serialized(t *testing.T) {
 		}
 	}
 	if ackCount != 2 {
-		t.Errorf("expected 2 ACKs, got %d (events: %v)", ackCount, events)
+		t.Errorf("expected 2 ACKs, got %d", ackCount)
 	}
-
-	// Verify execution count before unblocking
-	time.Sleep(50 * time.Millisecond)
-	if execCount > 1 {
-		t.Error("second execution should not start before first completes")
-	}
-	_ = execCount
 
 	// Unblock first execution
 	close(blocker)
 
-	// Should get 2 results eventually
+	// Should get 2 results
 	results := collectEvents(d.Out(), 2, 2*time.Second)
 	resultCount := 0
 	for _, e := range results {
@@ -222,10 +163,8 @@ func TestDispatcher_TwoMessages_SameSession_Serialized(t *testing.T) {
 	}
 }
 
-// blockingExecManager blocks ExecuteWorker until blocker is closed, then returns result.
 type blockingExecManager struct {
 	blocker <-chan struct{}
-	result  model.WorkerExecution
 }
 
 func (m *blockingExecManager) ExecuteWorker(_ context.Context, _, _ string) (model.WorkerExecution, error) {
@@ -233,8 +172,9 @@ func (m *blockingExecManager) ExecuteWorker(_ context.Context, _, _ string) (mod
 	return model.WorkerExecution{ID: "exec-x"}, nil
 }
 func (m *blockingExecManager) ReplyExecution(_ context.Context, _, _ string) (model.WorkerExecution, error) {
+	<-m.blocker
 	return model.WorkerExecution{ID: "exec-x"}, nil
 }
 func (m *blockingExecManager) GetExecution(_ string) (model.WorkerExecution, error) {
-	return m.result, nil
+	return model.WorkerExecution{ID: "exec-x", Status: model.ExecStatusCompleted, Result: "ok"}, nil
 }

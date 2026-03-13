@@ -6,10 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/robobee/core/internal/model"
-	"github.com/robobee/core/internal/msgingest"
-	"github.com/robobee/core/internal/msgrouter"
 	"github.com/robobee/core/internal/msgsender"
 	"github.com/robobee/core/internal/platform"
 )
@@ -17,7 +14,6 @@ import (
 const (
 	pollInterval = 2 * time.Second
 	pollTimeout  = 30 * time.Minute
-	mergedSep    = "\n\n---\n\n"
 	clearMsg     = "✅ 上下文已重置"
 	errorMsg     = "❌ 处理失败，请稍后重试"
 	ackMsg       = "⏳ 正在处理，请稍候…"
@@ -27,75 +23,77 @@ const (
 // ExecutionManager manages worker executions.
 type ExecutionManager interface {
 	ExecuteWorker(ctx context.Context, workerID, input string) (model.WorkerExecution, error)
+	// ReplyExecution resumes an existing Claude session identified by execID.
+	// Used for immediate tasks where a prior session exists.
 	ReplyExecution(ctx context.Context, execID, input string) (model.WorkerExecution, error)
 	GetExecution(id string) (model.WorkerExecution, error)
 }
 
-// MessageStore is the subset of store.MessageStore used by the dispatcher.
-type MessageStore interface {
-	SetWorkerID(ctx context.Context, id, workerID string) error
-	UpdateStatusBatch(ctx context.Context, ids []string, status string) error
-	MarkMerged(ctx context.Context, primaryID string, mergedIDs []string) error
-	MarkTerminal(ctx context.Context, ids []string, status string) error
-	GetUnfinished(ctx context.Context) ([]model.PendingMessage, error)
-	GetSession(ctx context.Context, sessionKey string) (*platform.Session, error)
-	SetExecution(ctx context.Context, msgID, executionID, sessionID string) error
-	InsertClearSentinel(ctx context.Context, id, sessionKey, platform string) error
+// TaskStore is the subset of store.TaskStore used by the Dispatcher.
+type TaskStore interface {
+	// SetExecution writes execution_id and status to a task row.
+	SetExecution(ctx context.Context, taskID, executionID, status string) error
 }
 
-type sessionState struct {
-	executing      bool
-	pendingIDs     []string
-	pendingContent string
-	lastReplyTo    platform.InboundMessage
-	workerID       string
+// MessageStore is the subset of store.MessageStore used by the Dispatcher.
+type MessageStore interface {
+	// GetSession returns the last session (LastExecutionID) for the given session key.
+	GetSession(ctx context.Context, sessionKey string) (*platform.Session, error)
+	// SetMessageExecution writes execution_id and session_id back to platform_messages.
+	SetMessageExecution(ctx context.Context, messageID, executionID, sessionID string) error
+}
+
+type queueState struct {
+	executing    bool
+	pendingTasks []DispatchTask
+	lastReplyTo  platform.InboundMessage
 }
 
 type internalResult struct {
 	queueKey string
-	msgIDs   []string
-	replyTo  platform.InboundMessage
+	task     DispatchTask
 	content  string
 }
 
-// Dispatcher serializes worker executions per session+worker pair and emits SenderEvents.
+// Dispatcher serializes worker executions per (SessionKey, WorkerID) and emits SenderEvents.
 type Dispatcher struct {
-	ctx      context.Context
-	manager  ExecutionManager
-	msgStore MessageStore
-	in       <-chan msgrouter.RoutedMessage
-	results  chan internalResult
-	out      chan msgsender.SenderEvent
-	sessions map[string]*sessionState
+	ctx       context.Context
+	manager   ExecutionManager
+	taskStore TaskStore
+	msgStore  MessageStore
+	in        <-chan DispatchTask
+	results   chan internalResult
+	out       chan msgsender.SenderEvent
+	queues    map[string]*queueState
 }
 
 // New constructs a Dispatcher.
-func New(manager ExecutionManager, msgStore MessageStore, in <-chan msgrouter.RoutedMessage) *Dispatcher {
+func New(manager ExecutionManager, taskStore TaskStore, msgStore MessageStore, in <-chan DispatchTask) *Dispatcher {
 	return &Dispatcher{
-		manager:  manager,
-		msgStore: msgStore,
-		in:       in,
-		results:  make(chan internalResult, 64),
-		out:      make(chan msgsender.SenderEvent, 64),
-		sessions: make(map[string]*sessionState),
+		manager:   manager,
+		taskStore: taskStore,
+		msgStore:  msgStore,
+		in:        in,
+		results:   make(chan internalResult, 64),
+		out:       make(chan msgsender.SenderEvent, 64),
+		queues:    make(map[string]*queueState),
 	}
 }
 
 // Out returns the channel of outgoing SenderEvents.
 func (d *Dispatcher) Out() <-chan msgsender.SenderEvent { return d.out }
 
-// Run processes messages until ctx is cancelled, then closes Out(). Call in a goroutine.
+// Run processes tasks until ctx is cancelled. Call in a goroutine.
 func (d *Dispatcher) Run(ctx context.Context) {
 	defer close(d.out)
 	d.ctx = ctx
-	d.recoverFromDB()
 	for {
 		select {
-		case msg, ok := <-d.in:
+		case task, ok := <-d.in:
 			if !ok {
 				return
 			}
-			d.handleInbound(msg)
+			d.handleInbound(task)
 		case res := <-d.results:
 			d.handleResult(res)
 		case <-ctx.Done():
@@ -108,108 +106,106 @@ func queueKey(sessionKey, workerID string) string {
 	return sessionKey + "|" + workerID
 }
 
-func (d *Dispatcher) handleInbound(msg msgrouter.RoutedMessage) {
-	if msg.RouteErr != "" {
-		d.msgStore.MarkTerminal(context.Background(), []string{msg.MsgID}, "failed") //nolint:errcheck
-		select {
-		case d.out <- msgsender.SenderEvent{Type: msgsender.SenderEventError, ReplyTo: msg.ReplyTo, Content: msg.RouteErr}:
-		case <-d.ctx.Done():
-			return
-		}
-		return
-	}
-
-	if msg.Command == msgingest.CommandClear {
-		prefix := msg.SessionKey + "|"
-		for key, state := range d.sessions {
+func (d *Dispatcher) handleInbound(task DispatchTask) {
+	// Handle clear command: evict all session state for this session prefix.
+	if task.TaskType == "clear" {
+		prefix := task.SessionKey + "|"
+		for key := range d.queues {
 			if strings.HasPrefix(key, prefix) {
-				if len(state.pendingIDs) > 0 {
-					d.msgStore.MarkTerminal(context.Background(), state.pendingIDs, "failed") //nolint:errcheck
-				}
-				delete(d.sessions, key)
+				delete(d.queues, key)
 			}
 		}
-		d.msgStore.InsertClearSentinel(context.Background(), uuid.New().String(), msg.SessionKey, msg.Platform) //nolint:errcheck
+		replyTo := task.ReplyTo
+		if task.ReplySessionKey != "" {
+			replyTo.SessionKey = task.ReplySessionKey
+		}
 		select {
-		case d.out <- msgsender.SenderEvent{Type: msgsender.SenderEventResult, ReplyTo: msg.ReplyTo, Content: clearMsg}:
+		case d.out <- msgsender.SenderEvent{Type: msgsender.SenderEventResult, ReplyTo: replyTo, Content: clearMsg}:
 		case <-d.ctx.Done():
-			return
 		}
 		return
 	}
 
-	key := queueKey(msg.SessionKey, msg.WorkerID)
-	state, ok := d.sessions[key]
+	key := queueKey(task.SessionKey, task.WorkerID)
+	state, ok := d.queues[key]
 	if !ok {
-		state = &sessionState{workerID: msg.WorkerID}
-		d.sessions[key] = state
+		state = &queueState{}
+		d.queues[key] = state
 	}
 
-	// ACK immediately on queue entry
+	// Determine effective reply target.
+	replyTo := task.ReplyTo
+	if task.ReplySessionKey != "" {
+		replyTo.SessionKey = task.ReplySessionKey
+	}
+
+	// ACK immediately.
 	select {
-	case d.out <- msgsender.SenderEvent{Type: msgsender.SenderEventACK, ReplyTo: msg.ReplyTo, Content: ackMsg}:
+	case d.out <- msgsender.SenderEvent{Type: msgsender.SenderEventACK, ReplyTo: replyTo, Content: ackMsg}:
 	case <-d.ctx.Done():
 		return
 	}
 
 	if !state.executing {
 		state.executing = true
-		state.lastReplyTo = msg.ReplyTo
-		d.msgStore.UpdateStatusBatch(context.Background(), []string{msg.MsgID}, "executing") //nolint:errcheck
-		go d.executeAsync(d.ctx, key, []string{msg.MsgID}, msg.Content, msg.ReplyTo, msg.WorkerID, msg.MsgID)
+		state.lastReplyTo = replyTo
+		go d.executeAsync(d.ctx, key, task, replyTo)
 	} else {
-		if state.pendingContent == "" {
-			state.pendingContent = msg.Content
-		} else {
-			state.pendingContent = state.pendingContent + mergedSep + msg.Content
-		}
-		state.pendingIDs = append(state.pendingIDs, msg.MsgID)
-		state.lastReplyTo = msg.ReplyTo
-		d.msgStore.UpdateStatusBatch(context.Background(), []string{msg.MsgID}, "pending") //nolint:errcheck
+		state.pendingTasks = append(state.pendingTasks, task)
+		state.lastReplyTo = replyTo
 	}
 }
 
-func (d *Dispatcher) executeAsync(ctx context.Context, key string, ids []string, content string, replyTo platform.InboundMessage, workerID, primaryMsgID string) {
-	sess, err := d.msgStore.GetSession(ctx, replyTo.SessionKey)
-	if err != nil {
-		log.Printf("dispatcher: get session error: %v", err)
-		select {
-		case d.results <- internalResult{queueKey: key, msgIDs: ids, replyTo: replyTo, content: errorMsg}:
-		case <-ctx.Done():
-			return
+func (d *Dispatcher) executeAsync(ctx context.Context, key string, task DispatchTask, replyTo platform.InboundMessage) {
+	var exec model.WorkerExecution
+	var err error
+
+	// For immediate tasks, attempt --resume if a prior session exists.
+	if task.TaskType == model.TaskTypeImmediate {
+		sess, sessErr := d.msgStore.GetSession(ctx, task.SessionKey)
+		if sessErr != nil {
+			log.Printf("dispatcher: get session error: %v", sessErr)
 		}
-		return
+		if sess != nil && sess.LastExecutionID != "" {
+			log.Printf("dispatcher: resuming execID=%s for task %s", sess.LastExecutionID, task.TaskID)
+			exec, err = d.manager.ReplyExecution(ctx, sess.LastExecutionID, task.Instruction)
+			if err != nil {
+				log.Printf("dispatcher: resume error (falling back to fresh): %v", err)
+				exec, err = d.manager.ExecuteWorker(ctx, task.WorkerID, task.Instruction)
+			}
+			goto execStarted
+		}
 	}
 
-	var exec model.WorkerExecution
-	if sess != nil && sess.LastExecutionID != "" {
-		log.Printf("dispatcher: replying to execution execID=%s", sess.LastExecutionID)
-		exec, err = d.manager.ReplyExecution(ctx, sess.LastExecutionID, content)
-	} else {
-		log.Printf("dispatcher: executing worker workerID=%s", workerID)
-		exec, err = d.manager.ExecuteWorker(ctx, workerID, content)
-	}
+	log.Printf("dispatcher: executing worker %s for task %s", task.WorkerID, task.TaskID)
+	exec, err = d.manager.ExecuteWorker(ctx, task.WorkerID, task.Instruction)
+
+execStarted:
 	if err != nil {
 		log.Printf("dispatcher: execute error: %v", err)
 		select {
-		case d.results <- internalResult{queueKey: key, msgIDs: ids, replyTo: replyTo, content: errorMsg}:
+		case d.results <- internalResult{queueKey: key, task: task, content: errorMsg}:
 		case <-ctx.Done():
-			return
 		}
 		return
 	}
 
-	d.msgStore.SetExecution(ctx, primaryMsgID, exec.ID, exec.SessionID) //nolint:errcheck
+	// Write execution back to task and message records.
+	if task.TaskID != "" {
+		d.taskStore.SetExecution(ctx, task.TaskID, exec.ID, model.TaskStatusRunning) //nolint:errcheck
+	}
+	if task.TaskType == model.TaskTypeImmediate && task.MessageID != "" {
+		d.msgStore.SetMessageExecution(ctx, task.MessageID, exec.ID, exec.SessionID) //nolint:errcheck
+	}
 
-	result := d.waitForResult(ctx, exec.ID)
+	result := d.waitForResult(ctx, exec.ID, task.TaskID)
 	select {
-	case d.results <- internalResult{queueKey: key, msgIDs: ids, replyTo: replyTo, content: result}:
+	case d.results <- internalResult{queueKey: key, task: task, content: result}:
 	case <-ctx.Done():
-		return
 	}
 }
 
-func (d *Dispatcher) waitForResult(ctx context.Context, executionID string) string {
+func (d *Dispatcher) waitForResult(ctx context.Context, executionID, taskID string) string {
 	deadline := time.Now().Add(pollTimeout)
 	lastStatus := ""
 	for time.Now().Before(deadline) {
@@ -224,11 +220,17 @@ func (d *Dispatcher) waitForResult(ctx context.Context, executionID string) stri
 		}
 		switch exec.Status {
 		case model.ExecStatusCompleted:
+			if taskID != "" {
+				d.taskStore.SetExecution(ctx, taskID, executionID, model.TaskStatusCompleted) //nolint:errcheck
+			}
 			if exec.Result != "" {
 				return exec.Result
 			}
 			return "✅ 任务已完成"
 		case model.ExecStatusFailed:
+			if taskID != "" {
+				d.taskStore.SetExecution(ctx, taskID, executionID, model.TaskStatusFailed) //nolint:errcheck
+			}
 			return "❌ 任务执行失败: " + exec.Result
 		}
 		select {
@@ -241,81 +243,32 @@ func (d *Dispatcher) waitForResult(ctx context.Context, executionID string) stri
 }
 
 func (d *Dispatcher) handleResult(res internalResult) {
-	d.msgStore.MarkTerminal(context.Background(), res.msgIDs, "done") //nolint:errcheck
+	replyTo := res.task.ReplyTo
+	if res.task.ReplySessionKey != "" {
+		replyTo.SessionKey = res.task.ReplySessionKey
+	}
 	select {
-	case d.out <- msgsender.SenderEvent{Type: msgsender.SenderEventResult, ReplyTo: res.replyTo, Content: res.content}:
+	case d.out <- msgsender.SenderEvent{Type: msgsender.SenderEventResult, ReplyTo: replyTo, Content: res.content}:
 	case <-d.ctx.Done():
 		return
 	}
 
-	state, ok := d.sessions[res.queueKey]
+	state, ok := d.queues[res.queueKey]
 	if !ok {
 		return
 	}
 
-	if state.pendingContent != "" {
-		nextContent := state.pendingContent
-		nextIDs := state.pendingIDs
-		nextReplyTo := state.lastReplyTo
-		state.pendingContent = ""
-		state.pendingIDs = nil
-
-		parts := strings.SplitN(res.queueKey, "|", 2)
-		workerID := ""
-		if len(parts) == 2 {
-			workerID = parts[1]
+	if len(state.pendingTasks) > 0 {
+		next := state.pendingTasks[0]
+		state.pendingTasks = state.pendingTasks[1:]
+		nextReplyTo := next.ReplyTo
+		if next.ReplySessionKey != "" {
+			nextReplyTo.SessionKey = next.ReplySessionKey
 		}
-
-		d.msgStore.UpdateStatusBatch(context.Background(), nextIDs, "executing") //nolint:errcheck
-		go d.executeAsync(d.ctx, res.queueKey, nextIDs, nextContent, nextReplyTo, workerID, nextIDs[0])
+		state.lastReplyTo = nextReplyTo
+		go d.executeAsync(d.ctx, res.queueKey, next, nextReplyTo)
 	} else {
 		state.executing = false
-		delete(d.sessions, res.queueKey)
+		delete(d.queues, res.queueKey)
 	}
-}
-
-func (d *Dispatcher) recoverFromDB() {
-	msgs, err := d.msgStore.GetUnfinished(context.Background())
-	if err != nil {
-		log.Printf("dispatcher: RecoverFromDB failed: %v", err)
-		return
-	}
-	if len(msgs) == 0 {
-		return
-	}
-
-	type group struct {
-		content  string
-		ids      []string
-		replyTo  platform.InboundMessage
-		workerID string
-	}
-	groups := make(map[string]*group)
-
-	for _, msg := range msgs {
-		key := queueKey(msg.SessionKey, msg.WorkerID)
-		g, ok := groups[key]
-		if !ok {
-			g = &group{
-				replyTo:  platform.InboundMessage{Platform: msg.Platform, SessionKey: msg.SessionKey},
-				workerID: msg.WorkerID,
-			}
-			groups[key] = g
-		}
-		if g.content == "" {
-			g.content = msg.Content
-		} else {
-			g.content = g.content + mergedSep + msg.Content
-		}
-		g.ids = append(g.ids, msg.ID)
-	}
-
-	for key, g := range groups {
-		state := &sessionState{executing: true, workerID: g.workerID}
-		d.sessions[key] = state
-		d.msgStore.UpdateStatusBatch(context.Background(), g.ids, "executing") //nolint:errcheck
-		go d.executeAsync(d.ctx, key, g.ids, g.content, g.replyTo, g.workerID, g.ids[0])
-	}
-
-	log.Printf("dispatcher: recovered %d session(s) from DB", len(groups))
 }
