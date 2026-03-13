@@ -36,10 +36,6 @@ type mockTaskStore struct{}
 
 func (s *mockTaskStore) SetExecution(_ context.Context, _, _, _ string) error { return nil }
 
-type mockMsgStore struct{}
-
-func (s *mockMsgStore) SetMessageExecution(_ context.Context, _, _, _ string) error { return nil }
-
 type mockSessionStore struct {
 	data    map[string]string // "sessionKey|agentID" -> sessionID
 	cleared []string          // sessionKeys cleared
@@ -63,7 +59,7 @@ func (s *mockSessionStore) ClearSessionContexts(_ context.Context, sessionKey st
 
 func newDispatcher(mgr dispatcher.ExecutionManager, ss dispatcher.SessionStore) (*dispatcher.Dispatcher, chan dispatcher.DispatchTask) {
 	in := make(chan dispatcher.DispatchTask, 4)
-	d := dispatcher.New(mgr, &mockTaskStore{}, &mockMsgStore{}, ss, in)
+	d := dispatcher.New(mgr, &mockTaskStore{}, ss, in)
 	return d, in
 }
 

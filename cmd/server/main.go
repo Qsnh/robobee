@@ -88,7 +88,7 @@ func main() {
 	sendersByPlatform := make(map[string]platform.PlatformSenderAdapter)
 
 	ingest := msgingest.New(msgStore, cfg.MessageQueue.DebounceWindow)
-	disp := dispatcher.New(mgr, taskStore, msgStore, sessionStore, dispatchCh)
+	disp := dispatcher.New(mgr, taskStore, sessionStore, dispatchCh)
 	sender := msgsender.New(sendersByPlatform, disp.Out())
 
 	go ingest.Run(ctx)

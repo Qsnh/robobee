@@ -33,11 +33,6 @@ type TaskStore interface {
 	SetExecution(ctx context.Context, taskID, executionID, status string) error
 }
 
-// MessageStore is the subset of store.MessageStore used by the Dispatcher.
-type MessageStore interface {
-	SetMessageExecution(ctx context.Context, messageID, executionID, sessionID string) error
-}
-
 // SessionStore is the subset of store.SessionStore used by the Dispatcher.
 type SessionStore interface {
 	GetSessionContext(ctx context.Context, sessionKey, agentID string) (string, error)
@@ -62,7 +57,6 @@ type Dispatcher struct {
 	ctx          context.Context
 	manager      ExecutionManager
 	taskStore    TaskStore
-	msgStore     MessageStore
 	sessionStore SessionStore
 	in           <-chan DispatchTask
 	results      chan internalResult
@@ -71,11 +65,10 @@ type Dispatcher struct {
 }
 
 // New constructs a Dispatcher.
-func New(manager ExecutionManager, taskStore TaskStore, msgStore MessageStore, sessionStore SessionStore, in <-chan DispatchTask) *Dispatcher {
+func New(manager ExecutionManager, taskStore TaskStore, sessionStore SessionStore, in <-chan DispatchTask) *Dispatcher {
 	return &Dispatcher{
 		manager:      manager,
 		taskStore:    taskStore,
-		msgStore:     msgStore,
 		sessionStore: sessionStore,
 		in:           in,
 		results:      make(chan internalResult, 64),
@@ -209,10 +202,6 @@ execStarted:
 	if task.TaskID != "" {
 		d.taskStore.SetExecution(ctx, task.TaskID, exec.ID, model.TaskStatusRunning) //nolint:errcheck
 	}
-	if task.TaskType == model.TaskTypeImmediate && task.MessageID != "" {
-		d.msgStore.SetMessageExecution(ctx, task.MessageID, exec.ID, exec.SessionID) //nolint:errcheck
-	}
-
 	result := d.waitForResult(ctx, exec.ID, task.TaskID, task.SessionKey, task.WorkerID)
 	select {
 	case d.results <- internalResult{queueKey: key, task: task, content: result}:
