@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/robobee/core/internal/claudemd"
 	"github.com/robobee/core/internal/config"
 	"github.com/robobee/core/internal/store"
 )
@@ -89,6 +90,10 @@ func (f *Feeder) tick(ctx context.Context) {
 		log.Printf("feeder: write CLAUDE.md: %v", err)
 		f.rollback(ctx, msgs)
 		return
+	}
+	if err := claudemd.EnsureSystemRules(f.cfg.WorkDir, claudemd.RoleBee); err != nil {
+		log.Printf("feeder: ensure system rules: %v", err)
+		// non-fatal: continue even if system rules update fails
 	}
 
 	groups := make(map[string][]store.ClaimedMessage)
