@@ -22,6 +22,7 @@ func setupMCPServer(t *testing.T) *mcp.MCPServer {
 
 	ws := store.NewWorkerStore(db)
 	es := store.NewExecutionStore(db)
+	ts := store.NewTaskStore(db)
 	cfg := config.Config{
 		Workers: config.WorkersConfig{BaseDir: t.TempDir()},
 		Runtime: config.RuntimeConfig{
@@ -29,7 +30,7 @@ func setupMCPServer(t *testing.T) *mcp.MCPServer {
 		},
 	}
 	mgr := worker.NewManager(cfg, ws, es)
-	return mcp.NewServer(ws, mgr)
+	return mcp.NewServer(ws, mgr, ts)
 }
 
 func mustMarshal(t *testing.T, v any) json.RawMessage {
@@ -155,8 +156,21 @@ func TestCallTool_UnknownTool(t *testing.T) {
 
 func TestToolSchemas_Count(t *testing.T) {
 	schemas := mcp.ToolSchemas()
-	if len(schemas) != 5 {
-		t.Errorf("expected 5 tool schemas, got %d", len(schemas))
+	if len(schemas) != 8 {
+		t.Errorf("expected 8 tool schemas, got %d", len(schemas))
+	}
+}
+
+func TestToolSchemas_IncludesTaskTools(t *testing.T) {
+	schemas := mcp.ToolSchemas()
+	names := make(map[string]bool)
+	for _, s := range schemas {
+		names[s.Name] = true
+	}
+	for _, want := range []string{"create_task", "list_tasks", "cancel_task"} {
+		if !names[want] {
+			t.Errorf("missing tool schema: %s", want)
+		}
 	}
 }
 

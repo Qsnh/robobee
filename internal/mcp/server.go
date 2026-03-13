@@ -49,16 +49,18 @@ func okResponse(id any, result any) rpcResponse {
 type MCPServer struct {
 	workerStore *store.WorkerStore
 	manager     *worker.Manager
+	taskStore   *store.TaskStore
 
 	mu       sync.Mutex
 	sessions map[string]chan rpcResponse // session_id -> response channel
 }
 
 // NewServer creates an MCPServer. Call RegisterRoutes to attach it to a Gin router group.
-func NewServer(ws *store.WorkerStore, mgr *worker.Manager) *MCPServer {
+func NewServer(ws *store.WorkerStore, mgr *worker.Manager, ts *store.TaskStore) *MCPServer {
 	return &MCPServer{
 		workerStore: ws,
 		manager:     mgr,
+		taskStore:   ts,
 		sessions:    make(map[string]chan rpcResponse),
 	}
 }

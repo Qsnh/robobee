@@ -1,9 +1,12 @@
 package mcp
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
+	"time"
 
+	"github.com/robfig/cron/v3"
 	"github.com/robobee/core/internal/model"
 )
 
@@ -81,6 +84,46 @@ func toolSchemas() []toolSchema {
 				},
 			},
 		},
+		{
+			Name:        "create_task",
+			Description: "Create a task assigning a worker to handle a user instruction from a message",
+			InputSchema: map[string]any{
+				"type":     "object",
+				"required": []string{"message_id", "worker_id", "instruction", "type"},
+				"properties": map[string]any{
+					"message_id":        map[string]string{"type": "string", "description": "ID of the originating platform message"},
+					"worker_id":         map[string]string{"type": "string", "description": "Worker ID to assign"},
+					"instruction":       map[string]string{"type": "string", "description": "Specific instruction for the worker"},
+					"type":              map[string]any{"type": "string", "enum": []string{"immediate", "countdown", "scheduled"}, "description": "Task type"},
+					"scheduled_at":      map[string]string{"type": "integer", "description": "Unix ms; required for countdown, must be >= now+5s"},
+					"cron_expr":         map[string]string{"type": "string", "description": "5-field cron expression; required for scheduled"},
+					"reply_session_key": map[string]string{"type": "string", "description": "Reply target override session key; required for scheduled"},
+				},
+			},
+		},
+		{
+			Name:        "list_tasks",
+			Description: "List tasks for a given message, optionally filtered by status",
+			InputSchema: map[string]any{
+				"type":     "object",
+				"required": []string{"message_id"},
+				"properties": map[string]any{
+					"message_id": map[string]string{"type": "string", "description": "ID of the originating platform message"},
+					"status":     map[string]string{"type": "string", "description": "Optional status filter"},
+				},
+			},
+		},
+		{
+			Name:        "cancel_task",
+			Description: "Cancel a pending or scheduled task",
+			InputSchema: map[string]any{
+				"type":     "object",
+				"required": []string{"task_id"},
+				"properties": map[string]any{
+					"task_id": map[string]string{"type": "string", "description": "Task ID to cancel"},
+				},
+			},
+		},
 	}
 }
 
@@ -102,6 +145,12 @@ func (s *MCPServer) callTool(name string, args json.RawMessage) (any, error) {
 		return s.toolUpdateWorker(args)
 	case "delete_worker":
 		return s.toolDeleteWorker(args)
+	case "create_task":
+		return s.toolCreateTask(args)
+	case "list_tasks":
+		return s.toolListTasks(args)
+	case "cancel_task":
+		return s.toolCancelTask(args)
 	default:
 		return nil, fmt.Errorf("unknown tool: %s", name)
 	}
@@ -194,4 +243,133 @@ func (s *MCPServer) toolDeleteWorker(args json.RawMessage) (any, error) {
 		return nil, err
 	}
 	return map[string]string{"status": "deleted"}, nil
+}
+
+func (s *MCPServer) toolCreateTask(args json.RawMessage) (any, error) {
+	var params struct {
+		MessageID       string `json:"message_id"`
+		WorkerID        string `json:"worker_id"`
+		Instruction     string `json:"instruction"`
+		Type            string `json:"type"`
+		ScheduledAt     *int64 `json:"scheduled_at"`
+		CronExpr        string `json:"cron_expr"`
+		ReplySessionKey string `json:"reply_session_key"`
+	}
+	if err := json.Unmarshal(args, &params); err != nil {
+		return nil, fmt.Errorf("invalid args: %w", err)
+	}
+	if params.MessageID == "" {
+		return nil, fmt.Errorf("message_id is required")
+	}
+	if params.WorkerID == "" {
+		return nil, fmt.Errorf("worker_id is required")
+	}
+	if params.Instruction == "" {
+		return nil, fmt.Errorf("instruction is required")
+	}
+	switch params.Type {
+	case "immediate", "countdown", "scheduled":
+	default:
+		return nil, fmt.Errorf("type must be immediate, countdown, or scheduled")
+	}
+
+	nowMS := time.Now().UnixMilli()
+
+	switch params.Type {
+	case "countdown":
+		if params.ScheduledAt == nil {
+			return nil, fmt.Errorf("scheduled_at is required for countdown tasks")
+		}
+		if *params.ScheduledAt < nowMS+5000 {
+			return nil, fmt.Errorf("scheduled_at must be at least 5 seconds in the future")
+		}
+	case "scheduled":
+		if params.CronExpr == "" {
+			return nil, fmt.Errorf("cron_expr is required for scheduled tasks")
+		}
+		if params.ReplySessionKey == "" {
+			return nil, fmt.Errorf("reply_session_key is required for scheduled tasks")
+		}
+	}
+
+	var nextRunAt *int64
+	if params.Type == "scheduled" {
+		sched, err := cron.ParseStandard(params.CronExpr)
+		if err != nil {
+			task := model.Task{
+				MessageID:   params.MessageID,
+				WorkerID:    params.WorkerID,
+				Instruction: params.Instruction,
+				Type:        params.Type,
+				Status:      model.TaskStatusCancelled,
+				CronExpr:    params.CronExpr,
+				CreatedAt:   nowMS,
+				UpdatedAt:   nowMS,
+			}
+			id, createErr := s.taskStore.Create(context.Background(), task)
+			if createErr != nil {
+				return nil, fmt.Errorf("create cancelled task: %w", createErr)
+			}
+			return map[string]string{"task_id": id, "status": "cancelled", "reason": "invalid cron_expr: " + err.Error()}, nil
+		}
+		next := sched.Next(time.Now()).UnixMilli()
+		nextRunAt = &next
+	}
+
+	task := model.Task{
+		MessageID:       params.MessageID,
+		WorkerID:        params.WorkerID,
+		Instruction:     params.Instruction,
+		Type:            params.Type,
+		Status:          model.TaskStatusPending,
+		ScheduledAt:     params.ScheduledAt,
+		CronExpr:        params.CronExpr,
+		NextRunAt:       nextRunAt,
+		ReplySessionKey: params.ReplySessionKey,
+		CreatedAt:       nowMS,
+		UpdatedAt:       nowMS,
+	}
+
+	id, err := s.taskStore.Create(context.Background(), task)
+	if err != nil {
+		return nil, fmt.Errorf("create task: %w", err)
+	}
+	return map[string]string{"task_id": id, "status": "pending"}, nil
+}
+
+func (s *MCPServer) toolListTasks(args json.RawMessage) (any, error) {
+	var params struct {
+		MessageID string `json:"message_id"`
+		Status    string `json:"status"`
+	}
+	if err := json.Unmarshal(args, &params); err != nil {
+		return nil, fmt.Errorf("invalid args: %w", err)
+	}
+	if params.MessageID == "" {
+		return nil, fmt.Errorf("message_id is required")
+	}
+	tasks, err := s.taskStore.ListByMessageID(context.Background(), params.MessageID, params.Status)
+	if err != nil {
+		return nil, fmt.Errorf("list tasks: %w", err)
+	}
+	if tasks == nil {
+		tasks = []model.Task{}
+	}
+	return tasks, nil
+}
+
+func (s *MCPServer) toolCancelTask(args json.RawMessage) (any, error) {
+	var params struct {
+		TaskID string `json:"task_id"`
+	}
+	if err := json.Unmarshal(args, &params); err != nil {
+		return nil, fmt.Errorf("invalid args: %w", err)
+	}
+	if params.TaskID == "" {
+		return nil, fmt.Errorf("task_id is required")
+	}
+	if err := s.taskStore.CancelTask(context.Background(), params.TaskID); err != nil {
+		return nil, fmt.Errorf("cancel task: %w", err)
+	}
+	return map[string]string{"task_id": params.TaskID, "status": "cancelled"}, nil
 }

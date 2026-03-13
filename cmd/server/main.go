@@ -45,6 +45,7 @@ func main() {
 	workerStore := store.NewWorkerStore(db)
 	execStore := store.NewExecutionStore(db)
 	msgStore := store.NewMessageStore(db)
+	taskStore := store.NewTaskStore(db)
 
 	// Initialize Claude Code client for routing
 	aiClient, err := ai.NewClaudeCodeClient(cfg.Runtime.ClaudeCode.Binary)
@@ -86,7 +87,7 @@ func main() {
 	// Start MCP server if configured
 	var mcpSrv *mcp.MCPServer
 	if cfg.MCP.APIKey != "" {
-		mcpSrv = mcp.NewServer(workerStore, mgr)
+		mcpSrv = mcp.NewServer(workerStore, mgr, taskStore)
 		log.Println("MCP server enabled at /mcp/sse and /mcp/messages")
 	}
 
