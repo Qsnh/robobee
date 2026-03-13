@@ -77,10 +77,10 @@ CREATE TABLE tasks (
     type         TEXT NOT NULL CHECK(type IN ('immediate','countdown','scheduled')),
     status       TEXT NOT NULL DEFAULT 'pending'
                       CHECK(status IN ('pending','running','completed','failed','cancelled')),
-    scheduled_at INTEGER,      -- milliseconds; countdown: trigger time
+    scheduled_at INTEGER,      -- milliseconds; countdown: absolute trigger time
     cron_expr    TEXT,         -- scheduled tasks only (5-field cron)
-    next_run_at  INTEGER,      -- milliseconds; scheduled tasks only
-    execution_id TEXT REFERENCES worker_executions(id),
+    next_run_at  INTEGER,      -- milliseconds; scheduled tasks only, updated after each run
+    execution_id TEXT REFERENCES worker_executions(id),  -- most recent execution
     created_at   INTEGER NOT NULL,
     updated_at   INTEGER NOT NULL
 );
@@ -94,10 +94,11 @@ CREATE INDEX idx_tasks_worker_id   ON tasks(worker_id);
 
 **Added values:**
 - `feeding` — batch claimed by Feeder, bee process running
-- `bee_processed` — bee created all tasks successfully
+- `bee_processed` — bee has processed this message (tasks created or skipped)
 
-**Removed from active use:**
-- `routed` — no longer produced (existing rows kept for history)
+**Notes:**
+- `bee_processed` is not fully terminal: the row remains updatable so the Dispatcher can write `execution_id` and `session_id` back (needed for `--resume` on subsequent immediate tasks in the same session).
+- `routed` — no longer produced by new code; existing rows kept for history.
 
 ### Relationships
 
@@ -112,7 +113,7 @@ platform_messages (1) ──→ (N) tasks ──→ (1) workers
 
 ### Identity & Persona
 
-Bee's name and persona are defined in `config.yaml`. On startup, the system writes `CLAUDE.md` to bee's work directory:
+Bee's name and persona are defined in `config.yaml`. The system writes `CLAUDE.md` to bee's work directory before each process launch:
 
 ```yaml
 bee:
@@ -125,7 +126,7 @@ bee:
     如果消息内容无法路由到任何 worker，或请求超出上述职责，拒绝提供服务。
 ```
 
-`CLAUDE.md` is written (or overwritten) each time a bee process is about to start.
+`CLAUDE.md` is written (or overwritten) each time before a bee process starts.
 
 ### Process Invocation
 
@@ -140,7 +141,7 @@ claude \
 
 - No `--resume` flag — bee is stateless across batches.
 - Launched via `exec.CommandContext` with a configurable timeout (default 5m).
-- Exit code 0 = success; non-zero = failure (Feeder rolls back message status).
+- Exit code 0 = success; non-zero = failure (Feeder rolls back message status and cleans up orphaned tasks — see §4).
 
 ### Batch Prompt Format
 
@@ -164,7 +165,7 @@ Bee **only calls MCP tools**. No text output is parsed. The MCP server handles t
 
 ### Out-of-Scope Handling
 
-If a message cannot be routed to any worker or is outside bee's mandate, bee creates no task for that message. The message status transitions to `bee_processed` regardless (so it is not re-consumed), but no tasks are created.
+If a message cannot be routed to any worker or is outside bee's mandate, bee creates no task for that message. The message still transitions to `bee_processed` so it is not re-consumed.
 
 ---
 
@@ -178,6 +179,7 @@ bee:
     interval: 10s      # Poll interval
     batch_size: 10     # Max messages per bee invocation
     timeout: 5m        # Bee process timeout
+    queue_warn_threshold: 100  # Log warning when received queue exceeds this
 ```
 
 ### Workflow
@@ -193,18 +195,34 @@ COMMIT
 No messages? → skip
     ↓
 Write bee's CLAUDE.md to work_dir
-Build batch prompt
+Build batch prompt, record batch_message_ids = [ids claimed]
 Spawn bee process (exec.CommandContext with timeout)
     ↓
 Wait for exit
   ├─ exit 0 → UPDATE messages status → bee_processed
-  └─ timeout / error → UPDATE messages status → received (rollback), log error
+  └─ timeout / error →
+       DELETE FROM tasks WHERE message_id IN batch_message_ids AND status = 'pending'
+       UPDATE messages status → received (rollback)
+       log error
 ```
+
+### Partial Failure Safety
+
+On bee process failure or timeout, the Feeder deletes any `pending` tasks created for the failed batch (identified by `message_id IN batch_message_ids`) before rolling back message status to `received`. This prevents orphaned tasks from re-running when messages are retried.
 
 ### Concurrency Safety
 
 - The `SELECT + UPDATE → feeding` is a single DB transaction, preventing duplicate consumption across restarts or future multi-instance deployments.
 - Only one bee process runs at a time; Feeder waits for the current bee to exit before starting the next tick.
+- Rollback guard: the Feeder only resets rows whose status is still `feeding`. Rows that advanced to `bee_processed` (e.g., partially processed before a crash) are not touched.
+
+### Queue Health
+
+- After each tick, if `COUNT(status=received) > queue_warn_threshold`, emit a warning log. This surfaces silent queue buildup before it becomes a production issue.
+
+### Startup Recovery
+
+On server start, **before any goroutines are launched**, the Feeder resets any `feeding` messages back to `received` and deletes associated `pending` tasks for those messages. This step must complete before the TaskScheduler's startup recovery runs (see §5) to avoid a delete/reset race on tasks that were promoted to `running` from a `feeding`-batch's `pending` state.
 
 ---
 
@@ -218,9 +236,19 @@ Wait for exit
 | `countdown` | `scheduled_at <= now` | `scheduled_at` | "三小时后总结周报" |
 | `scheduled` | `next_run_at <= now` | `cron_expr`, `next_run_at` | "每小时检查 issue" |
 
-Bee provides `scheduled_at` as an absolute millisecond timestamp when calling `create_task`. The Go layer calculates it from the relative expression (e.g., "3小时后" → `now + 3h`) during MCP tool handling.
+Bee provides `scheduled_at` as an absolute millisecond timestamp. The Go MCP handler calculates it from bee's relative time expression (e.g., "3小时后" → `now + 3h`) during tool call processing.
 
 For `scheduled` tasks, the Go layer parses `cron_expr` using `robfig/cron` and computes the initial `next_run_at` on task creation.
+
+### `create_task` Validation Rules
+
+| `type` | `scheduled_at` | `cron_expr` | Validation |
+|--------|---------------|-------------|-----------|
+| `immediate` | ignored | ignored | Always valid |
+| `countdown` | **required** | ignored | Must be `>= server_now_ms + 5000` (server clock, +5s minimum lead); error if missing or too soon |
+| `scheduled` | ignored | **required** | Must be valid 5-field cron; task created with `status=cancelled` if invalid |
+
+All time validation uses the MCP server's `time.Now().UnixMilli()` (server clock).
 
 ### TaskScheduler
 
@@ -241,13 +269,25 @@ For each task:
   ├─ Send DispatchTask to Dispatcher channel
   ├─ UPDATE status → running  (immediate / countdown)
   └─ type=scheduled:
-       UPDATE next_run_at = next occurrence after now
-       status remains pending (re-triggered each cycle)
+       UPDATE next_run_at = next occurrence after now (via robfig/cron)
+       status remains 'pending' (re-triggered each cycle)
 ```
+
+### Startup Recovery
+
+On server start, TaskScheduler runs **after the Feeder startup reset completes**:
+1. Resets all `running` tasks to `pending` (these were abandoned mid-execution during a prior crash).
+2. The next poll tick will re-dispatch them normally.
+
+### Scheduled Task Lifecycle
+
+- A `scheduled` task runs indefinitely until explicitly cancelled via `cancel_task`.
+- If a `scheduled` task's worker is deleted, all `pending` and `running` tasks for that worker transition to `cancelled`.
+- If dispatch fails permanently (e.g., worker not found at dispatch time), the task transitions to `failed` and does not re-trigger.
 
 ### Cancellation
 
-`scheduled` tasks can be cancelled via the MCP `cancel_task` tool, setting `status = 'cancelled'`. TaskScheduler skips cancelled tasks.
+`scheduled` tasks (and any `pending` task) can be cancelled via the MCP `cancel_task` tool, setting `status = 'cancelled'`. TaskScheduler skips cancelled tasks.
 
 ---
 
@@ -268,10 +308,14 @@ type RoutedMessage struct {
 type DispatchTask struct {
     TaskID      string
     WorkerID    string
-    SessionKey  string   // original message session_key for reply routing
-    Instruction string   // bee-generated instruction for the worker
+    SessionKey  string              // original message session_key for reply routing
+    Instruction string              // bee-generated instruction for the worker
+    ReplyTo     platform.InboundMessage  // original inbound message for Sender
+    TaskType    string              // "immediate" | "countdown" | "scheduled"
 }
 ```
+
+`ReplyTo` is populated by the TaskScheduler by joining `tasks → platform_messages` at dispatch time.
 
 ### Serialization
 
@@ -279,12 +323,15 @@ Per-`(SessionKey, WorkerID)` serial execution is preserved. New tasks for the sa
 
 ### Session Context
 
-- `immediate` tasks: use `--resume` within the same session (preserves conversation history).
+- `immediate` tasks: resolve prior `session_id` by querying `platform_messages WHERE id = task.message_id`. Use `--resume <session_id>` if one exists; otherwise start a fresh session.
 - `countdown` and `scheduled` tasks: no `--resume` — each trigger is a fresh session to avoid stale context.
 
 ### Result Writeback
 
-On completion, Dispatcher writes `execution_id` back to `tasks.execution_id` and updates `tasks.status` to `completed` or `failed`.
+On completion, Dispatcher:
+1. Writes `execution_id` back to `tasks.execution_id`.
+2. Updates `tasks.status` to `completed` or `failed`.
+3. For `immediate` tasks: writes `execution_id` and `session_id` back to `platform_messages` using `UPDATE ... WHERE status = 'bee_processed'` — this is a no-op if the row was rolled back by the Feeder, preventing write/rollback races.
 
 ---
 
@@ -299,35 +346,40 @@ Added to `internal/mcp/tools.go`:
   "name": "create_task",
   "description": "Create a task assigning a worker to handle a user instruction",
   "inputSchema": {
-    "message_id":    { "type": "string", "required": true },
-    "worker_id":     { "type": "string", "required": true },
-    "instruction":   { "type": "string", "required": true },
-    "type":          { "type": "string", "enum": ["immediate","countdown","scheduled"], "required": true },
-    "scheduled_at":  { "type": "integer", "description": "Unix ms; required for countdown" },
-    "cron_expr":     { "type": "string",  "description": "5-field cron; required for scheduled" }
+    "message_id":    { "type": "string",  "required": true },
+    "worker_id":     { "type": "string",  "required": true },
+    "instruction":   { "type": "string",  "required": true },
+    "type":          { "type": "string",  "enum": ["immediate","countdown","scheduled"], "required": true },
+    "scheduled_at":  { "type": "integer", "description": "Unix ms; required for countdown, must be >= server_now + 5s" },
+    "cron_expr":     { "type": "string",  "description": "5-field cron; required for scheduled" },
+    "reply_session_key": { "type": "string", "description": "Optional override session_key for result delivery (useful for scheduled tasks targeting a specific notification channel)" }
   }
 }
 ```
+
+`reply_session_key` is optional. If omitted, the Dispatcher derives the reply target from `platform_messages.session_key` via the `message_id` join. For recurring `scheduled` tasks where the originating session may be stale, Bee should supply an explicit `reply_session_key`.
 
 ### `list_tasks`
 
 ```json
 {
   "name": "list_tasks",
-  "description": "List tasks, optionally filtered by message_id or status",
+  "description": "List tasks for a given message, optionally filtered by status",
   "inputSchema": {
-    "message_id": { "type": "string" },
+    "message_id": { "type": "string", "required": true },
     "status":     { "type": "string" }
   }
 }
 ```
+
+`message_id` is **required** to prevent bee from seeing tasks belonging to other sessions.
 
 ### `cancel_task`
 
 ```json
 {
   "name": "cancel_task",
-  "description": "Cancel a scheduled task",
+  "description": "Cancel a pending or scheduled task",
   "inputSchema": {
     "task_id": { "type": "string", "required": true }
   }
@@ -351,6 +403,7 @@ bee:
     interval: 10s
     batch_size: 10
     timeout: 5m
+    queue_warn_threshold: 100
 ```
 
 ---
@@ -359,16 +412,31 @@ bee:
 
 | Scenario | Behavior |
 |----------|----------|
-| Bee process times out | Messages rolled back to `received`; error logged |
-| Bee calls `create_task` with unknown `worker_id` | MCP returns error; bee may retry with `list_workers` |
-| Worker execution fails | `tasks.status → failed`; result sent to platform with error message |
-| `scheduled` task cron parse error | Task created with `status=cancelled`; error logged |
+| Bee process times out | Delete orphaned pending tasks for batch; messages rolled back to `received`; error logged |
+| Bee process exits non-zero | Same as timeout |
+| `feeding` messages at startup | Reset to `received`; associated pending tasks deleted |
+| `running` tasks at startup | Reset to `pending`; re-dispatched on next TaskScheduler tick |
+| `create_task` with unknown `worker_id` | MCP returns error; bee may retry with `list_workers` |
+| `create_task` with `scheduled_at` in the past | MCP returns validation error |
+| `create_task` with invalid `cron_expr` | Task created with `status=cancelled`; error logged |
+| Worker deleted while tasks pending | All pending/running tasks for that worker → `cancelled` |
+| Worker execution fails | `tasks.status → failed`; error message sent to platform |
+| Sender delivery fails (platform session expired, user left chat) | Task status remains `completed`; send error logged only — delivery failure does not mark the task as failed |
 | DB unavailable during task dispatch | TaskScheduler logs error; retries on next tick |
+| Queue depth exceeds `queue_warn_threshold` | Warning logged; no blocking action |
+| Startup ordering | Feeder reset runs first (sync), TaskScheduler reset runs second (sync), then goroutines launched |
 
 ---
 
 ## 10. Testing Strategy
 
-- **Unit:** Feeder batch-pull logic, cron `next_run_at` calculation, bee prompt generation
-- **Integration:** MCP `create_task` tool end-to-end (bee creates task → TaskScheduler picks it up → Dispatcher executes → result written back)
-- **Scenario tests:** Multi-task message (multiple `create_task` calls), countdown task fires after delay, scheduled task recurs correctly, out-of-scope message produces no task
+- **Unit:** Feeder batch-pull logic; cron `next_run_at` calculation; bee prompt generation; `create_task` validation rules (all type/field combinations)
+- **Integration:** MCP `create_task` end-to-end (bee creates task → TaskScheduler picks it up → Dispatcher executes → result written back to task + platform)
+- **Scenario tests:**
+  - Multi-task message: single message spawns tasks for multiple workers
+  - Countdown task fires after configured delay
+  - Scheduled task recurs and `next_run_at` advances correctly
+  - Out-of-scope message produces no task, message still marked `bee_processed`
+  - Bee timeout: orphaned tasks cleaned up, messages retried on next tick
+  - Startup recovery: abandoned `feeding` messages and `running` tasks recovered correctly
+  - Worker deletion cancels associated tasks
