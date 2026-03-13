@@ -168,7 +168,10 @@ func (d *Dispatcher) executeAsync(ctx context.Context, key string, task Dispatch
 execStarted:
 	if err != nil {
 		log.Printf("dispatcher: execute error: %v", err)
-		d.results <- internalResult{queueKey: key, task: task}
+		select {
+		case d.results <- internalResult{queueKey: key, task: task}:
+		case <-ctx.Done():
+		}
 		return
 	}
 
@@ -176,7 +179,10 @@ execStarted:
 		d.taskStore.SetExecution(ctx, task.TaskID, exec.ID, model.TaskStatusRunning) //nolint:errcheck
 	}
 	d.waitForResult(ctx, exec.ID, task.TaskID, task.SessionKey, task.WorkerID)
-	d.results <- internalResult{queueKey: key, task: task}
+	select {
+	case d.results <- internalResult{queueKey: key, task: task}:
+	case <-ctx.Done():
+	}
 }
 
 func (d *Dispatcher) waitForResult(ctx context.Context, executionID, taskID, sessionKey, workerID string) {
