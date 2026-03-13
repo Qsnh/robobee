@@ -9,23 +9,11 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/robobee/core/internal/config"
 	"github.com/robobee/core/internal/dispatcher"
 	"github.com/robobee/core/internal/platform"
 	"github.com/robobee/core/internal/store"
 )
-
-// FeederConfig holds Feeder tuning parameters.
-type FeederConfig struct {
-	Interval           time.Duration
-	BatchSize          int
-	Timeout            time.Duration
-	QueueWarnThreshold int
-	WorkDir            string
-	Persona            string
-	Binary             string // claude CLI path
-	MCPBaseURL         string // e.g. "http://localhost:8080"
-	MCPAPIKey          string
-}
 
 // BeeRunner abstracts the bee process invocation (real or test double).
 type BeeRunner interface {
@@ -39,11 +27,11 @@ type Feeder struct {
 	sessionStore *store.SessionStore
 	runner       BeeRunner
 	clearCh      chan<- dispatcher.DispatchTask
-	cfg          FeederConfig
+	cfg          config.BeeConfig
 }
 
 // NewFeeder creates a Feeder.
-func NewFeeder(ms *store.MessageStore, ts *store.TaskStore, ss *store.SessionStore, runner BeeRunner, clearCh chan<- dispatcher.DispatchTask, cfg FeederConfig) *Feeder {
+func NewFeeder(ms *store.MessageStore, ts *store.TaskStore, ss *store.SessionStore, runner BeeRunner, clearCh chan<- dispatcher.DispatchTask, cfg config.BeeConfig) *Feeder {
 	return &Feeder{
 		msgStore:     ms,
 		taskStore:    ts,
@@ -74,7 +62,7 @@ func (f *Feeder) RecoverFeeding(ctx context.Context) {
 
 // Run polls for unprocessed messages on each tick. Call in a goroutine.
 func (f *Feeder) Run(ctx context.Context) {
-	ticker := time.NewTicker(f.cfg.Interval)
+	ticker := time.NewTicker(f.cfg.Feeder.Interval)
 	defer ticker.Stop()
 	for {
 		select {
@@ -89,12 +77,12 @@ func (f *Feeder) Run(ctx context.Context) {
 func (f *Feeder) tick(ctx context.Context) {
 	// Check queue health
 	count, _ := f.msgStore.CountReceived(ctx)
-	if count > f.cfg.QueueWarnThreshold {
-		log.Printf("feeder: WARNING: %d unprocessed messages in queue (threshold: %d)", count, f.cfg.QueueWarnThreshold)
+	if count > f.cfg.Feeder.QueueWarnThreshold {
+		log.Printf("feeder: WARNING: %d unprocessed messages in queue (threshold: %d)", count, f.cfg.Feeder.QueueWarnThreshold)
 	}
 
 	// Claim a batch atomically
-	msgs, err := f.msgStore.ClaimBatch(ctx, f.cfg.BatchSize)
+	msgs, err := f.msgStore.ClaimBatch(ctx, f.cfg.Feeder.BatchSize)
 	if err != nil {
 		log.Printf("feeder: claim batch: %v", err)
 		return
@@ -172,7 +160,7 @@ func (f *Feeder) processBeeGroup(ctx context.Context, sessionKey string, msgs []
 	}
 
 	prompt := buildPrompt(msgs)
-	beeCtx, cancel := context.WithTimeout(ctx, f.cfg.Timeout)
+	beeCtx, cancel := context.WithTimeout(ctx, f.cfg.Feeder.Timeout)
 	defer cancel()
 
 	if err := f.runner.Run(beeCtx, f.cfg.WorkDir, prompt, sessionID, resume); err != nil {

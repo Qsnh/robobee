@@ -23,13 +23,11 @@ func setupMCPServer(t *testing.T) *mcp.MCPServer {
 	ws := store.NewWorkerStore(db)
 	es := store.NewExecutionStore(db)
 	ts := store.NewTaskStore(db)
-	cfg := config.Config{
-		Workers: config.WorkersConfig{BaseDir: t.TempDir()},
-		Runtime: config.RuntimeConfig{
-			ClaudeCode: config.RuntimeEntry{Binary: "claude"},
-		},
-	}
-	mgr := worker.NewManager(cfg, ws, es)
+	mgr := worker.NewManager(
+		config.WorkersConfig{BaseDir: t.TempDir()},
+		config.RuntimeConfig{ClaudeCode: config.RuntimeEntry{Binary: "claude"}},
+		ws, es,
+	)
 	return mcp.NewServer(ws, mgr, ts)
 }
 

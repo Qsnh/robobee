@@ -33,7 +33,8 @@ type claudeContent struct {
 }
 
 type Manager struct {
-	cfg            config.Config
+	workersCfg     config.WorkersConfig
+	runtimeCfg     config.RuntimeConfig
 	workerStore    *store.WorkerStore
 	executionStore *store.ExecutionStore
 
@@ -43,12 +44,14 @@ type Manager struct {
 }
 
 func NewManager(
-	cfg config.Config,
+	wc config.WorkersConfig,
+	rc config.RuntimeConfig,
 	ws *store.WorkerStore,
 	es *store.ExecutionStore,
 ) *Manager {
 	return &Manager{
-		cfg:            cfg,
+		workersCfg:     wc,
+		runtimeCfg:     rc,
 		workerStore:    ws,
 		executionStore: es,
 		activeRuntimes: make(map[string]Runtime),
@@ -62,7 +65,7 @@ func (m *Manager) CreateWorker(
 ) (model.Worker, error) {
 	id := uuid.New().String()
 	if workDir == "" {
-		workDir = filepath.Join(m.cfg.Workers.BaseDir, id)
+		workDir = filepath.Join(m.workersCfg.BaseDir, id)
 	}
 
 	if err := os.MkdirAll(workDir, 0755); err != nil {
@@ -103,8 +106,8 @@ func (m *Manager) ExecuteWorker(ctx context.Context, workerID, triggerInput stri
 		log.Printf("failed to update worker status: %v", err)
 	}
 
-	rt := NewClaudeRuntime(m.cfg.Runtime.ClaudeCode.Binary)
-	timeout := m.cfg.Runtime.ClaudeCode.Timeout
+	rt := NewClaudeRuntime(m.runtimeCfg.ClaudeCode.Binary)
+	timeout := m.runtimeCfg.ClaudeCode.Timeout
 
 	// Build the prompt: base prompt + trigger input
 	prompt := worker.Prompt
@@ -142,8 +145,8 @@ func (m *Manager) ExecuteWorkerWithSession(ctx context.Context, workerID, trigge
 		log.Printf("failed to update worker status: %v", err)
 	}
 
-	rt := NewClaudeRuntime(m.cfg.Runtime.ClaudeCode.Binary)
-	timeout := m.cfg.Runtime.ClaudeCode.Timeout
+	rt := NewClaudeRuntime(m.runtimeCfg.ClaudeCode.Binary)
+	timeout := m.runtimeCfg.ClaudeCode.Timeout
 
 	// On resume, only the new message is sent — the worker's base prompt is already
 	// established in the Claude session history (same as ReplyExecution).
@@ -289,8 +292,8 @@ func (m *Manager) ReplyExecution(ctx context.Context, executionID string, messag
 		log.Printf("failed to update worker status: %v", err)
 	}
 
-	rt := NewClaudeRuntime(m.cfg.Runtime.ClaudeCode.Binary)
-	timeout := m.cfg.Runtime.ClaudeCode.Timeout
+	rt := NewClaudeRuntime(m.runtimeCfg.ClaudeCode.Binary)
+	timeout := m.runtimeCfg.ClaudeCode.Timeout
 
 	if err := m.launchRuntime(newExec, worker, rt, timeout, message, true); err != nil {
 		m.executionStore.UpdateResult(newExec.ID, err.Error(), model.ExecStatusFailed)

@@ -22,10 +22,15 @@ type Config struct {
 }
 
 type BeeConfig struct {
-	Name    string      `yaml:"name"`
-	WorkDir string      `yaml:"work_dir"`
-	Persona string      `yaml:"persona"`
+	Name    string       `yaml:"name"`
+	WorkDir string       `yaml:"work_dir"`
+	Persona string       `yaml:"persona"`
 	Feeder  FeederConfig `yaml:"feeder"`
+
+	// Derived fields — not in YAML, computed by Load()
+	MCPBaseURL string `yaml:"-"` // http://host:port (no path suffix)
+	MCPAPIKey  string `yaml:"-"` // copied from MCPConfig.APIKey
+	Binary     string `yaml:"-"` // copied from Runtime.ClaudeCode.Binary
 }
 
 type FeederConfig struct {
@@ -90,6 +95,9 @@ func Load(path string) (Config, error) {
 	if err := applyDefaults(&cfg); err != nil {
 		return Config{}, err
 	}
+	cfg.Bee.MCPBaseURL = fmt.Sprintf("http://%s:%d", cfg.Server.Host, cfg.Server.Port)
+	cfg.Bee.MCPAPIKey = cfg.MCP.APIKey
+	cfg.Bee.Binary = cfg.Runtime.ClaudeCode.Binary
 	return cfg, nil
 }
 
@@ -125,6 +133,9 @@ func applyDefaults(cfg *Config) error {
 	}
 	if cfg.Bee.Feeder.QueueWarnThreshold == 0 {
 		cfg.Bee.Feeder.QueueWarnThreshold = 100
+	}
+	if cfg.Runtime.ClaudeCode.Binary == "" {
+		cfg.Runtime.ClaudeCode.Binary = "claude"
 	}
 	return nil
 }

@@ -6,6 +6,63 @@ import (
 	"time"
 )
 
+func TestBeeConfig_DerivedFields(t *testing.T) {
+	f, _ := os.CreateTemp("", "*.yaml")
+	f.WriteString(`
+server:
+  host: "localhost"
+  port: 8080
+mcp:
+  api_key: "test-key"
+runtime:
+  claude_code:
+    binary: "claude-custom"
+bee:
+  name: "bee"
+  work_dir: "/tmp/bee"
+  persona: "you are bee"
+`)
+	f.Close()
+
+	cfg, err := Load(f.Name())
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	if cfg.Bee.MCPBaseURL != "http://localhost:8080" {
+		t.Errorf("MCPBaseURL: want http://localhost:8080 got %q", cfg.Bee.MCPBaseURL)
+	}
+	if cfg.Bee.MCPAPIKey != "test-key" {
+		t.Errorf("MCPAPIKey: want test-key got %q", cfg.Bee.MCPAPIKey)
+	}
+	if cfg.Bee.Binary != "claude-custom" {
+		t.Errorf("Binary: want claude-custom got %q", cfg.Bee.Binary)
+	}
+}
+
+func TestBeeConfig_BinaryDefault(t *testing.T) {
+	f, _ := os.CreateTemp("", "*.yaml")
+	f.WriteString(`
+server:
+  host: "localhost"
+  port: 8080
+bee:
+  name: "bee"
+  work_dir: "/tmp/bee"
+  persona: "you are bee"
+`)
+	f.Close()
+
+	cfg, err := Load(f.Name())
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	if cfg.Bee.Binary != "claude" {
+		t.Errorf("Binary default: want claude got %q", cfg.Bee.Binary)
+	}
+}
+
 func TestBeeConfig_Defaults(t *testing.T) {
 	f, _ := os.CreateTemp("", "*.yaml")
 	f.WriteString(`
