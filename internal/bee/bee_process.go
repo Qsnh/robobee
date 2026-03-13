@@ -32,14 +32,23 @@ func WriteCLAUDEMD(workDir, persona string) error {
 }
 
 // Run spawns the bee process with the given prompt and waits for it to exit.
+// If sessionID is non-empty and resume is true, passes --resume <sessionID>.
+// If sessionID is non-empty and resume is false, passes --session-id <sessionID>.
 // Returns nil on exit code 0, an error otherwise.
-func (p *BeeProcess) Run(ctx context.Context, workDir, prompt string) error {
+func (p *BeeProcess) Run(ctx context.Context, workDir, prompt, sessionID string, resume bool) error {
 	args := []string{
 		"--dangerously-skip-permissions",
 		"--output-format", "stream-json",
 		"--mcp-server", "robobee=" + p.mcpURL,
 		"--mcp-api-key", p.apiKey,
 		"-p", prompt,
+	}
+	if sessionID != "" {
+		if resume {
+			args = append(args, "--resume", sessionID)
+		} else {
+			args = append(args, "--session-id", sessionID)
+		}
 	}
 	cmd := exec.CommandContext(ctx, p.binary, args...)
 	cmd.Dir = workDir

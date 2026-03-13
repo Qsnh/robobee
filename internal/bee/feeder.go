@@ -5,8 +5,10 @@ import (
 	"fmt"
 	"log"
 	"strings"
+	"sync"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/robobee/core/internal/dispatcher"
 	"github.com/robobee/core/internal/platform"
 	"github.com/robobee/core/internal/store"
@@ -27,26 +29,28 @@ type FeederConfig struct {
 
 // BeeRunner abstracts the bee process invocation (real or test double).
 type BeeRunner interface {
-	Run(ctx context.Context, workDir, prompt string) error
+	Run(ctx context.Context, workDir, prompt, sessionID string, resume bool) error
 }
 
 // Feeder polls platform_messages for unprocessed messages and feeds them to bee.
 type Feeder struct {
-	msgStore  *store.MessageStore
-	taskStore *store.TaskStore
-	runner    BeeRunner
-	clearCh   chan<- dispatcher.DispatchTask
-	cfg       FeederConfig
+	msgStore     *store.MessageStore
+	taskStore    *store.TaskStore
+	sessionStore *store.SessionStore
+	runner       BeeRunner
+	clearCh      chan<- dispatcher.DispatchTask
+	cfg          FeederConfig
 }
 
 // NewFeeder creates a Feeder.
-func NewFeeder(ms *store.MessageStore, ts *store.TaskStore, runner BeeRunner, clearCh chan<- dispatcher.DispatchTask, cfg FeederConfig) *Feeder {
+func NewFeeder(ms *store.MessageStore, ts *store.TaskStore, ss *store.SessionStore, runner BeeRunner, clearCh chan<- dispatcher.DispatchTask, cfg FeederConfig) *Feeder {
 	return &Feeder{
-		msgStore:  ms,
-		taskStore: ts,
-		runner:    runner,
-		clearCh:   clearCh,
-		cfg:       cfg,
+		msgStore:     ms,
+		taskStore:    ts,
+		sessionStore: ss,
+		runner:       runner,
+		clearCh:      clearCh,
+		cfg:          cfg,
 	}
 }
 
@@ -129,30 +133,66 @@ func (f *Feeder) tick(ctx context.Context) {
 		return
 	}
 
-	// Write CLAUDE.md with persona
+	// Write CLAUDE.md with persona once, before fan-out (all goroutines share workDir)
 	if err := WriteCLAUDEMD(f.cfg.WorkDir, f.cfg.Persona); err != nil {
 		log.Printf("feeder: write CLAUDE.md: %v", err)
 		f.rollback(ctx, regularMsgs)
 		return
 	}
 
-	prompt := buildPrompt(regularMsgs)
-	msgIDs := make([]string, len(regularMsgs))
-	for i, m := range regularMsgs {
-		msgIDs[i] = m.ID
+	// Group by sessionKey and process each group concurrently
+	groups := make(map[string][]store.ClaimedMessage)
+	for _, m := range regularMsgs {
+		groups[m.SessionKey] = append(groups[m.SessionKey], m)
 	}
 
+	var wg sync.WaitGroup
+	for sessionKey, group := range groups {
+		wg.Add(1)
+		go func(sessionKey string, group []store.ClaimedMessage) {
+			defer wg.Done()
+			f.processBeeGroup(ctx, sessionKey, group)
+		}(sessionKey, group)
+	}
+	wg.Wait()
+}
+
+// processBeeGroup invokes bee for a single sessionKey's messages, managing session continuity.
+func (f *Feeder) processBeeGroup(ctx context.Context, sessionKey string, msgs []store.ClaimedMessage) {
+	// Look up existing session for this sessionKey
+	sessionID, err := f.sessionStore.GetSessionContext(ctx, sessionKey, store.BeeAgentID)
+	if err != nil {
+		log.Printf("feeder: get session context for %s: %v", sessionKey, err)
+		f.rollback(ctx, msgs)
+		return
+	}
+	resume := sessionID != ""
+	if sessionID == "" {
+		sessionID = uuid.New().String()
+	}
+
+	prompt := buildPrompt(msgs)
 	beeCtx, cancel := context.WithTimeout(ctx, f.cfg.Timeout)
 	defer cancel()
 
-	if err := f.runner.Run(beeCtx, f.cfg.WorkDir, prompt); err != nil {
-		log.Printf("feeder: bee run failed: %v", err)
-		f.rollback(ctx, regularMsgs)
+	if err := f.runner.Run(beeCtx, f.cfg.WorkDir, prompt, sessionID, resume); err != nil {
+		log.Printf("feeder: bee run failed for %s: %v", sessionKey, err)
+		f.rollback(ctx, msgs)
 		return
 	}
 
+	// Persist session_id before marking messages processed
+	if err := f.sessionStore.UpsertSessionContext(ctx, sessionKey, store.BeeAgentID, sessionID); err != nil {
+		log.Printf("feeder: upsert session context for %s: %v", sessionKey, err)
+		// non-fatal: continue to mark messages processed
+	}
+
+	msgIDs := make([]string, len(msgs))
+	for i, m := range msgs {
+		msgIDs[i] = m.ID
+	}
 	if err := f.msgStore.MarkBeeProcessed(ctx, msgIDs); err != nil {
-		log.Printf("feeder: mark bee_processed: %v", err)
+		log.Printf("feeder: mark bee_processed for %s: %v", sessionKey, err)
 	}
 }
 

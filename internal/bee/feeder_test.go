@@ -12,54 +12,93 @@ import (
 	"github.com/robobee/core/internal/store"
 )
 
-func setupFeederDB(t *testing.T) (*sql.DB, *store.MessageStore, *store.TaskStore) {
+func setupFeederDB(t *testing.T) (*sql.DB, *store.MessageStore, *store.TaskStore, *store.SessionStore) {
 	t.Helper()
 	db, err := store.InitDB(t.TempDir() + "/test.db")
 	if err != nil {
 		t.Fatalf("InitDB: %v", err)
 	}
-	db.Exec(`INSERT INTO platform_messages (id, session_key, platform, content, status, received_at, created_at, updated_at)
-             VALUES ('m1', 'feishu:c:u', 'feishu', 'hello', 'received', 1, 1, 1)`)
-	return db, store.NewMessageStore(db), store.NewTaskStore(db)
+	t.Cleanup(func() { db.Close() })
+	return db, store.NewMessageStore(db), store.NewTaskStore(db), store.NewSessionStore(db)
 }
 
-// mockBeeRunner is a test double that records the prompt it was called with.
+func insertMessage(t *testing.T, db *sql.DB, id, sessionKey, content string) {
+	t.Helper()
+	now := time.Now().UnixMilli()
+	_, err := db.Exec(
+		`INSERT INTO platform_messages (id, session_key, platform, content, status, received_at, created_at, updated_at)
+		 VALUES (?, ?, 'feishu', ?, 'received', ?, ?, ?)`,
+		id, sessionKey, content, now, now, now,
+	)
+	if err != nil {
+		t.Fatalf("insert message: %v", err)
+	}
+}
+
+// mockBeeRunner records all Run calls.
 type mockBeeRunner struct {
-	calledWithPrompt string
-	err              error
+	calls []beeCall
+	err   error
 }
 
-func (m *mockBeeRunner) Run(_ context.Context, _, prompt string) error {
-	m.calledWithPrompt = prompt
+type beeCall struct {
+	prompt    string
+	sessionID string
+	resume    bool
+}
+
+func (m *mockBeeRunner) Run(_ context.Context, _, prompt, sessionID string, resume bool) error {
+	m.calls = append(m.calls, beeCall{prompt: prompt, sessionID: sessionID, resume: resume})
 	return m.err
 }
 
-func TestFeeder_ClaimsMessages_And_InvokesBee(t *testing.T) {
-	db, ms, ts := setupFeederDB(t)
-	defer db.Close()
-
-	runner := &mockBeeRunner{}
+func newFeeder(ms *store.MessageStore, ts *store.TaskStore, ss *store.SessionStore, runner bee.BeeRunner) *bee.Feeder {
 	clearCh := make(chan dispatcher.DispatchTask, 10)
 	cfg := bee.FeederConfig{
 		Interval:           50 * time.Millisecond,
-		BatchSize:          5,
+		BatchSize:          10,
 		Timeout:            5 * time.Second,
 		QueueWarnThreshold: 100,
-		WorkDir:            t.TempDir(),
+		WorkDir:            "/tmp",
 	}
+	return bee.NewFeeder(ms, ts, ss, runner, clearCh, cfg)
+}
 
-	f := bee.NewFeeder(ms, ts, runner, clearCh, cfg)
+// TestFeeder_FirstTick_UsesNewSessionID verifies that on the first message for a sessionKey,
+// bee is called with a fresh UUID sessionID and resume=false.
+func TestFeeder_FirstTick_UsesNewSessionID(t *testing.T) {
+	db, ms, ts, ss := setupFeederDB(t)
+	insertMessage(t, db, "m1", "feishu:c:u", "hello")
+
+	runner := &mockBeeRunner{}
+	f := newFeeder(ms, ts, ss, runner)
+
 	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
 	defer cancel()
-
 	go f.Run(ctx)
-	time.Sleep(200 * time.Millisecond)
+	time.Sleep(150 * time.Millisecond)
 
-	if runner.calledWithPrompt == "" {
-		t.Error("expected bee runner to be called with a prompt")
+	if len(runner.calls) == 0 {
+		t.Fatal("expected bee runner to be called")
+	}
+	call := runner.calls[0]
+	if call.sessionID == "" {
+		t.Error("expected non-empty sessionID on first call")
+	}
+	if call.resume {
+		t.Error("expected resume=false on first call")
 	}
 
-	// Message should now be bee_processed
+	// Session context should be persisted
+	got, err := ss.GetSessionContext(context.Background(), "feishu:c:u", store.BeeAgentID)
+	if err != nil {
+		t.Fatalf("get session context: %v", err)
+	}
+	if got != call.sessionID {
+		t.Errorf("persisted sessionID mismatch: want %q got %q", call.sessionID, got)
+	}
+
+	// Message should be bee_processed
 	var status string
 	db.QueryRow(`SELECT status FROM platform_messages WHERE id='m1'`).Scan(&status)
 	if status != "bee_processed" {
@@ -67,24 +106,50 @@ func TestFeeder_ClaimsMessages_And_InvokesBee(t *testing.T) {
 	}
 }
 
-func TestFeeder_RollsBack_OnBeeFailure(t *testing.T) {
-	db, ms, ts := setupFeederDB(t)
-	defer db.Close()
+// TestFeeder_SecondTick_ResumesSession verifies that after a session_id is established,
+// subsequent bee calls use resume=true with the stored sessionID.
+func TestFeeder_SecondTick_ResumesSession(t *testing.T) {
+	db, ms, ts, ss := setupFeederDB(t)
+	ctx := context.Background()
 
-	runner := &mockBeeRunner{err: fmt.Errorf("bee crashed")}
-	clearCh := make(chan dispatcher.DispatchTask, 10)
-	cfg := bee.FeederConfig{
-		Interval:           50 * time.Millisecond,
-		BatchSize:          5,
-		Timeout:            5 * time.Second,
-		QueueWarnThreshold: 100,
-		WorkDir:            t.TempDir(),
+	// Pre-seed a session context as if a prior tick already ran
+	if err := ss.UpsertSessionContext(ctx, "feishu:c:u", store.BeeAgentID, "existing-session"); err != nil {
+		t.Fatalf("seed session: %v", err)
 	}
 
-	f := bee.NewFeeder(ms, ts, runner, clearCh, cfg)
-	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
-	defer cancel()
+	insertMessage(t, db, "m1", "feishu:c:u", "follow-up")
 
+	runner := &mockBeeRunner{}
+	f := newFeeder(ms, ts, ss, runner)
+
+	tickCtx, cancel := context.WithTimeout(ctx, 300*time.Millisecond)
+	defer cancel()
+	go f.Run(tickCtx)
+	time.Sleep(150 * time.Millisecond)
+
+	if len(runner.calls) == 0 {
+		t.Fatal("expected bee runner to be called")
+	}
+	call := runner.calls[0]
+	if call.sessionID != "existing-session" {
+		t.Errorf("expected existing-session, got %q", call.sessionID)
+	}
+	if !call.resume {
+		t.Error("expected resume=true on second call")
+	}
+}
+
+// TestFeeder_OnBeeFailure_RollsBackAndDoesNotUpdateSession verifies that a bee failure
+// resets messages to 'received' and does NOT write to session_contexts.
+func TestFeeder_OnBeeFailure_RollsBackAndDoesNotUpdateSession(t *testing.T) {
+	db, ms, ts, ss := setupFeederDB(t)
+	insertMessage(t, db, "m1", "feishu:c:u", "hello")
+
+	runner := &mockBeeRunner{err: fmt.Errorf("bee crashed")}
+	f := newFeeder(ms, ts, ss, runner)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
+	defer cancel()
 	go f.Run(ctx)
 	time.Sleep(150 * time.Millisecond)
 
@@ -92,5 +157,43 @@ func TestFeeder_RollsBack_OnBeeFailure(t *testing.T) {
 	db.QueryRow(`SELECT status FROM platform_messages WHERE id='m1'`).Scan(&status)
 	if status != "received" {
 		t.Errorf("expected rollback to received, got %q", status)
+	}
+
+	got, _ := ss.GetSessionContext(context.Background(), "feishu:c:u", store.BeeAgentID)
+	if got != "" {
+		t.Errorf("session context should not be written on failure, got %q", got)
+	}
+}
+
+// TestFeeder_MultipleSessionKeys_ProcessedIndependently verifies that two sessionKeys
+// in the same batch each get their own bee invocation with independent session tracking.
+func TestFeeder_MultipleSessionKeys_ProcessedIndependently(t *testing.T) {
+	db, ms, ts, ss := setupFeederDB(t)
+	insertMessage(t, db, "m1", "feishu:c:u1", "message from user1")
+	insertMessage(t, db, "m2", "feishu:c:u2", "message from user2")
+
+	runner := &mockBeeRunner{}
+	f := newFeeder(ms, ts, ss, runner)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
+	defer cancel()
+	go f.Run(ctx)
+	time.Sleep(150 * time.Millisecond)
+
+	if len(runner.calls) != 2 {
+		t.Fatalf("expected 2 bee invocations (one per sessionKey), got %d", len(runner.calls))
+	}
+
+	// Each sessionKey should have its own session context
+	sess1, _ := ss.GetSessionContext(context.Background(), "feishu:c:u1", store.BeeAgentID)
+	sess2, _ := ss.GetSessionContext(context.Background(), "feishu:c:u2", store.BeeAgentID)
+	if sess1 == "" {
+		t.Error("session context for u1 should be set")
+	}
+	if sess2 == "" {
+		t.Error("session context for u2 should be set")
+	}
+	if sess1 == sess2 {
+		t.Error("session IDs for different sessionKeys must differ")
 	}
 }

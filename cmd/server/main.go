@@ -44,6 +44,7 @@ func main() {
 	execStore := store.NewExecutionStore(db)
 	msgStore := store.NewMessageStore(db)
 	taskStore := store.NewTaskStore(db)
+	sessionStore := store.NewSessionStore(db)
 
 	mgr := worker.NewManager(cfg, workerStore, execStore)
 
@@ -76,7 +77,7 @@ func main() {
 		mcpBaseURL+"/mcp/sse",
 		cfg.MCP.APIKey,
 	)
-	feeder := bee.NewFeeder(msgStore, taskStore, beeProcess, dispatchCh, feederCfg)
+	feeder := bee.NewFeeder(msgStore, taskStore, sessionStore, beeProcess, dispatchCh, feederCfg)
 	feeder.RecoverFeeding(context.Background())
 
 	sched := taskscheduler.New(taskStore, dispatchCh, cfg.Bee.Feeder.Interval)
