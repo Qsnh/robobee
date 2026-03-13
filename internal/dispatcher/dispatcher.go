@@ -172,6 +172,9 @@ func (d *Dispatcher) executeAsync(ctx context.Context, key string, task Dispatch
 		sessionID, sessErr := d.sessionStore.GetSessionContext(ctx, task.SessionKey, task.WorkerID)
 		if sessErr != nil {
 			log.Printf("dispatcher: get session context error: %v", sessErr)
+			// Fail-open: DB error causes sessionID to be "" (zero value), so we fall through
+			// to a fresh ExecuteWorker call. Session continuity is silently lost for this
+			// invocation, which is preferable to blocking task execution on a DB failure.
 		}
 		if sessionID != "" {
 			log.Printf("dispatcher: resuming session=%s for task %s", sessionID, task.TaskID)

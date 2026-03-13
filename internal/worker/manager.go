@@ -145,6 +145,8 @@ func (m *Manager) ExecuteWorkerWithSession(ctx context.Context, workerID, trigge
 	rt := NewClaudeRuntime(m.cfg.Runtime.ClaudeCode.Binary)
 	timeout := m.cfg.Runtime.ClaudeCode.Timeout
 
+	// On resume, only the new message is sent — the worker's base prompt is already
+	// established in the Claude session history (same as ReplyExecution).
 	if err := m.launchRuntime(exec, worker, rt, timeout, triggerInput, true); err != nil {
 		m.executionStore.UpdateResult(exec.ID, err.Error(), model.ExecStatusFailed)
 		m.workerStore.UpdateStatus(worker.ID, model.WorkerStatusError)
