@@ -120,6 +120,17 @@ var migrations = []migration{
 		name:    "20260312_create_index_tasks_worker_id",
 		sql:     `CREATE INDEX IF NOT EXISTS idx_tasks_worker_id ON tasks(worker_id)`,
 	},
+	{
+		version: 12,
+		name:    "20260312_create_table_session_contexts",
+		sql: `CREATE TABLE IF NOT EXISTS session_contexts (
+		session_key  TEXT    NOT NULL,
+		agent_id     TEXT    NOT NULL,
+		session_id   TEXT    NOT NULL,
+		updated_at   INTEGER NOT NULL,
+		PRIMARY KEY (session_key, agent_id)
+	)`,
+	},
 }
 
 func InitDB(dbPath string) (*sql.DB, error) {
