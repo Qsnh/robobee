@@ -76,6 +76,7 @@ Currently, task completion and message sending are handled automatically by the 
 
 - Looks up the message via `messageStore.GetByID(ctx, messageID)` to obtain `platform` and `raw`
 - Constructs `platform.OutboundMessage{ReplyTo: inboundMsg, Content: content}` using the stored raw data
+- Looks up sender with an explicit presence check: if `stored.Platform` is not in `senders`, return an error (log + tool error, no panic)
 - Calls `senders[platform].Send(ctx, outboundMsg)`
 - Feishu send vs reply is determined internally by `FeishuSender` based on `chatType` (p2p → send, group → reply) — no AI input needed
 - DingTalk replies via `SessionWebhook` embedded in raw data
@@ -185,7 +186,7 @@ senders[stored.Platform].Send(ctx, outbound)
 - Result/error sending (`SenderEventResult`, `SenderEventError`) in `handleResult`
 - Clear command confirmation send (`d.out <- SenderEvent{..., Content: clearMsg}`) in `handleInbound` — **note: this message was already silently dropped** because the clear `DispatchTask` carries no `Raw` field, causing both `FeishuSender` and `DingTalkSender` to fail their unmarshal and return nil; the UX is unchanged
 - `SetExecution` calls for terminal statuses in `waitForResult`: remove the `TaskStatusCompleted` and `TaskStatusFailed` writes — workers own terminal status via `mark_task_success/failed`. The `SetExecution` call that records the execution ID and sets `TaskStatusRunning` at execution start is **kept**
-- `internalResult.content` field (no longer used after result sending is removed)
+- `internalResult.content` field (no longer used after result sending is removed). `internalResult` becomes `{queueKey string, task DispatchTask}` only. `handleResult` no longer sends to `d.out`; it only advances the queue (same pending-task dequeue / `state.executing = false` logic as today, minus the `d.out` send at the top)
 - Import of `msgsender` package
 
 ### Retained
