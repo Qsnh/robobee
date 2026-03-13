@@ -47,13 +47,25 @@ func okResponse(id any, result any) rpcResponse {
 	return rpcResponse{JSONRPC: "2.0", ID: id, Result: result}
 }
 
+// ExecutionStopper can kill a running worker process by execution ID.
+type ExecutionStopper interface {
+	StopExecution(executionID string) error
+}
+
+// SessionClearer clears dispatcher queues and session contexts for a session.
+type SessionClearer interface {
+	ClearSession(sessionKey string)
+}
+
 // MCPServer manages SSE sessions and dispatches JSON-RPC tool calls.
 type MCPServer struct {
-	workerStore  *store.WorkerStore
-	manager      *worker.Manager
-	taskStore    *store.TaskStore
-	messageStore *store.MessageStore
-	senders      map[string]platform.PlatformSenderAdapter
+	workerStore    *store.WorkerStore
+	manager        *worker.Manager
+	taskStore      *store.TaskStore
+	messageStore   *store.MessageStore
+	senders        map[string]platform.PlatformSenderAdapter
+	execStopper    ExecutionStopper
+	sessionClearer SessionClearer
 
 	mu       sync.Mutex
 	sessions map[string]chan rpcResponse // session_id -> response channel
@@ -66,14 +78,18 @@ func NewServer(
 	ts *store.TaskStore,
 	ms *store.MessageStore,
 	senders map[string]platform.PlatformSenderAdapter,
+	execStopper ExecutionStopper,
+	sessionClearer SessionClearer,
 ) *MCPServer {
 	return &MCPServer{
-		workerStore:  ws,
-		manager:      mgr,
-		taskStore:    ts,
-		messageStore: ms,
-		senders:      senders,
-		sessions:     make(map[string]chan rpcResponse),
+		workerStore:    ws,
+		manager:        mgr,
+		taskStore:      ts,
+		messageStore:   ms,
+		senders:        senders,
+		execStopper:    execStopper,
+		sessionClearer: sessionClearer,
+		sessions:       make(map[string]chan rpcResponse),
 	}
 }
 

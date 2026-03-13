@@ -71,14 +71,12 @@ func buildApp(cfg config.Config) (*App, error) {
 
 	dispatchCh := make(chan dispatcher.DispatchTask, 128)
 
-	// Create sender map before MCPServer — maps are reference types,
-	// so MCPServer holds the same map and sees entries added below.
 	sendersByPlatform := make(map[string]platform.PlatformSenderAdapter)
-
-	mcpSrv := mcp.NewServer(s.workerStore, mgr, s.taskStore, s.msgStore, sendersByPlatform)
 
 	feeder, sched := buildBee(cfg.Bee, s, dispatchCh)
 	ingest, disp := buildPipeline(cfg.MessageQueue, s, mgr, dispatchCh)
+
+	mcpSrv := mcp.NewServer(s.workerStore, mgr, s.taskStore, s.msgStore, sendersByPlatform, mgr, disp)
 	platforms := buildPlatforms(cfg.Feishu, cfg.DingTalk)
 
 	// Populate sender map before goroutines start

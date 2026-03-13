@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"time"
 
 	"github.com/robfig/cron/v3"
@@ -104,13 +105,13 @@ func toolSchemas() []toolSchema {
 		},
 		{
 			Name:        "list_tasks",
-			Description: "List tasks for a given message, optionally filtered by status",
+			Description: "List tasks filtered by message_id or session_key (mutually exclusive), optionally filtered by status (supports comma-separated values like 'pending,running')",
 			InputSchema: map[string]any{
-				"type":     "object",
-				"required": []string{"message_id"},
+				"type": "object",
 				"properties": map[string]any{
-					"message_id": map[string]string{"type": "string", "description": "ID of the originating platform message"},
-					"status":     map[string]string{"type": "string", "description": "Optional status filter"},
+					"message_id":  map[string]string{"type": "string", "description": "Filter by message ID"},
+					"session_key": map[string]string{"type": "string", "description": "Filter by session key (mutually exclusive with message_id)"},
+					"status":      map[string]string{"type": "string", "description": "Optional status filter, supports comma-separated values e.g. 'pending,running'"},
 				},
 			},
 		},
@@ -160,6 +161,17 @@ func toolSchemas() []toolSchema {
 				},
 			},
 		},
+		{
+			Name:        "clear_session",
+			Description: "Cancel all active tasks (terminating running worker processes), clear dispatcher queues, and reset all session contexts for the given session. Use this to fully reset a conversation session.",
+			InputSchema: map[string]any{
+				"type":     "object",
+				"required": []string{"session_key"},
+				"properties": map[string]any{
+					"session_key": map[string]string{"type": "string", "description": "The session key to clear"},
+				},
+			},
+		},
 	}
 }
 
@@ -193,6 +205,8 @@ func (s *MCPServer) callTool(name string, args json.RawMessage) (any, error) {
 		return s.toolMarkTaskFailed(args)
 	case "send_message":
 		return s.toolSendMessage(args)
+	case "clear_session":
+		return s.toolClearSession(args)
 	default:
 		return nil, fmt.Errorf("unknown tool: %s", name)
 	}
@@ -381,16 +395,27 @@ func (s *MCPServer) toolCreateTask(args json.RawMessage) (any, error) {
 
 func (s *MCPServer) toolListTasks(args json.RawMessage) (any, error) {
 	var params struct {
-		MessageID string `json:"message_id"`
-		Status    string `json:"status"`
+		MessageID  string `json:"message_id"`
+		SessionKey string `json:"session_key"`
+		Status     string `json:"status"`
 	}
 	if err := json.Unmarshal(args, &params); err != nil {
 		return nil, fmt.Errorf("invalid args: %w", err)
 	}
-	if params.MessageID == "" {
-		return nil, fmt.Errorf("message_id is required")
+	if params.MessageID != "" && params.SessionKey != "" {
+		return nil, fmt.Errorf("message_id and session_key are mutually exclusive")
 	}
-	tasks, err := s.taskStore.ListByMessageID(context.Background(), params.MessageID, params.Status)
+	if params.MessageID == "" && params.SessionKey == "" {
+		return nil, fmt.Errorf("either message_id or session_key is required")
+	}
+
+	var tasks []model.Task
+	var err error
+	if params.SessionKey != "" {
+		tasks, err = s.taskStore.ListBySessionKey(context.Background(), params.SessionKey, params.Status)
+	} else {
+		tasks, err = s.taskStore.ListByMessageID(context.Background(), params.MessageID, params.Status)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("list tasks: %w", err)
 	}
@@ -486,4 +511,49 @@ func (s *MCPServer) toolSendMessage(args json.RawMessage) (any, error) {
 		return nil, fmt.Errorf("send message: %w", err)
 	}
 	return map[string]string{"status": "sent"}, nil
+}
+
+func (s *MCPServer) toolClearSession(args json.RawMessage) (any, error) {
+	var params struct {
+		SessionKey string `json:"session_key"`
+	}
+	if err := json.Unmarshal(args, &params); err != nil {
+		return nil, fmt.Errorf("invalid args: %w", err)
+	}
+	if params.SessionKey == "" {
+		return nil, fmt.Errorf("session_key is required")
+	}
+
+	ctx := context.Background()
+
+	// Step 1: Collect running tasks with execution IDs (before cancelling)
+	runningTasks, err := s.taskStore.ListBySessionKey(ctx, params.SessionKey, "running")
+	if err != nil {
+		return nil, fmt.Errorf("list running tasks: %w", err)
+	}
+
+	// Step 2: Stop running worker processes
+	for _, t := range runningTasks {
+		if t.ExecutionID != "" {
+			if err := s.execStopper.StopExecution(t.ExecutionID); err != nil {
+				log.Printf("clear_session: stop execution %s: %v", t.ExecutionID, err)
+			}
+		}
+	}
+
+	// Step 3: Cancel all pending/running tasks in DB
+	cancelled, err := s.taskStore.CancelBySessionKey(ctx, params.SessionKey)
+	if err != nil {
+		return nil, fmt.Errorf("cancel tasks: %w", err)
+	}
+
+	// Step 4: Clear dispatcher queues + session contexts
+	if s.sessionClearer != nil {
+		s.sessionClearer.ClearSession(params.SessionKey)
+	}
+
+	return map[string]any{
+		"cancelled_tasks": cancelled,
+		"cleared":         true,
+	}, nil
 }

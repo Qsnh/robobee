@@ -34,7 +34,7 @@ func setupMCPServerWithMessaging(t *testing.T) *mcp.MCPServer {
 		ws, es,
 	)
 	senders := make(map[string]platform.PlatformSenderAdapter)
-	return mcp.NewServer(ws, mgr, ts, ms, senders)
+	return mcp.NewServer(ws, mgr, ts, ms, senders, nil, nil)
 }
 
 func mustMarshal(t *testing.T, v any) json.RawMessage {
@@ -213,7 +213,7 @@ func setupMCPServerWithSender(t *testing.T, senderID string, sender platform.Pla
 		ws, es,
 	)
 	senders := map[string]platform.PlatformSenderAdapter{senderID: sender}
-	return mcp.NewServer(ws, mgr, ts, ms, senders), db
+	return mcp.NewServer(ws, mgr, ts, ms, senders, nil, nil), db
 }
 
 // --- mark_task_success ---
@@ -414,8 +414,8 @@ func TestCallTool_SendMessage_MessageNotFound(t *testing.T) {
 
 func TestToolSchemas_Count_AfterNewTools(t *testing.T) {
 	schemas := mcp.ToolSchemas()
-	if len(schemas) != 11 {
-		t.Errorf("expected 11 tool schemas (8 existing + 3 new), got %d", len(schemas))
+	if len(schemas) != 12 {
+		t.Errorf("expected 12 tool schemas (8 existing + 3 new), got %d", len(schemas))
 	}
 }
 
@@ -429,5 +429,182 @@ func TestToolSchemas_IncludesNewTools(t *testing.T) {
 		if !names[want] {
 			t.Errorf("missing tool schema: %s", want)
 		}
+	}
+}
+
+// --- list_tasks session_key tests ---
+
+func TestCallTool_ListTasks_BySessionKey(t *testing.T) {
+	s, db := setupMCPServerWithSender(t, "feishu", &mockSender{})
+	ctx := context.Background()
+	ms := store.NewMessageStore(db)
+	ms.Create(ctx, "msg-sk1", "session-X", "feishu", "hi", `{}`, "", 0) //nolint
+
+	workerResult, _ := s.CallTool("create_worker", mustMarshal(t, map[string]any{"name": "W"}))
+	w := workerResult.(model.Worker)
+
+	s.CallTool("create_task", mustMarshal(t, map[string]any{
+		"message_id": "msg-sk1", "worker_id": w.ID,
+		"instruction": "task1", "type": "immediate",
+	}))
+
+	result, err := s.CallTool("list_tasks", mustMarshal(t, map[string]any{
+		"session_key": "session-X",
+	}))
+	if err != nil {
+		t.Fatalf("list_tasks by session_key: %v", err)
+	}
+	tasks := result.([]model.Task)
+	if len(tasks) != 1 {
+		t.Errorf("expected 1 task, got %d", len(tasks))
+	}
+}
+
+func TestCallTool_ListTasks_BothParams_Error(t *testing.T) {
+	s := setupMCPServerWithMessaging(t)
+	_, err := s.CallTool("list_tasks", mustMarshal(t, map[string]any{
+		"message_id":  "msg-1",
+		"session_key": "session-X",
+	}))
+	if err == nil {
+		t.Error("expected error when both message_id and session_key provided")
+	}
+}
+
+func TestCallTool_ListTasks_NoParams_Error(t *testing.T) {
+	s := setupMCPServerWithMessaging(t)
+	_, err := s.CallTool("list_tasks", mustMarshal(t, map[string]any{}))
+	if err == nil {
+		t.Error("expected error when neither message_id nor session_key provided")
+	}
+}
+
+// --- Mock implementations for clear_session ---
+
+type mockExecStopper struct {
+	mu      sync.Mutex
+	stopped []string
+}
+
+func (m *mockExecStopper) StopExecution(executionID string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.stopped = append(m.stopped, executionID)
+	return nil
+}
+
+type mockSessionClearer struct {
+	mu      sync.Mutex
+	cleared []string
+}
+
+func (m *mockSessionClearer) ClearSession(sessionKey string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.cleared = append(m.cleared, sessionKey)
+}
+
+func setupMCPServerWithClear(t *testing.T) (*mcp.MCPServer, *sql.DB, *mockExecStopper, *mockSessionClearer) {
+	t.Helper()
+	db, err := store.InitDB(t.TempDir() + "/test.db")
+	if err != nil {
+		t.Fatalf("InitDB: %v", err)
+	}
+	t.Cleanup(func() { db.Close() })
+
+	ws := store.NewWorkerStore(db)
+	es := store.NewExecutionStore(db)
+	ts := store.NewTaskStore(db)
+	ms := store.NewMessageStore(db)
+	mgr := worker.NewManager(
+		config.WorkersConfig{BaseDir: t.TempDir()},
+		config.RuntimeConfig{ClaudeCode: config.RuntimeEntry{Binary: "claude"}},
+		ws, es,
+	)
+	senders := make(map[string]platform.PlatformSenderAdapter)
+	stopper := &mockExecStopper{}
+	clearer := &mockSessionClearer{}
+	return mcp.NewServer(ws, mgr, ts, ms, senders, stopper, clearer), db, stopper, clearer
+}
+
+func TestCallTool_ClearSession_NoActiveTasks(t *testing.T) {
+	s, _, _, clearer := setupMCPServerWithClear(t)
+
+	result, err := s.CallTool("clear_session", mustMarshal(t, map[string]any{
+		"session_key": "session-X",
+	}))
+	if err != nil {
+		t.Fatalf("clear_session: %v", err)
+	}
+	m := result.(map[string]any)
+	if m["cleared"] != true {
+		t.Errorf("expected cleared=true, got %v", m["cleared"])
+	}
+
+	clearer.mu.Lock()
+	defer clearer.mu.Unlock()
+	if len(clearer.cleared) != 1 || clearer.cleared[0] != "session-X" {
+		t.Errorf("expected ClearSession called with session-X, got %v", clearer.cleared)
+	}
+}
+
+func TestCallTool_ClearSession_CancelsAndStopsTasks(t *testing.T) {
+	s, db, stopper, clearer := setupMCPServerWithClear(t)
+	ctx := context.Background()
+
+	ms := store.NewMessageStore(db)
+	ms.Create(ctx, "msg-c1", "session-Y", "feishu", "hi", `{}`, "", 0) //nolint
+
+	workerResult, _ := s.CallTool("create_worker", mustMarshal(t, map[string]any{"name": "W"}))
+	w := workerResult.(model.Worker)
+
+	// Create a running task with execution_id
+	ts := store.NewTaskStore(db)
+	id, _ := ts.Create(ctx, model.Task{
+		MessageID: "msg-c1", WorkerID: w.ID, Instruction: "long task",
+		Type: model.TaskTypeImmediate, Status: model.TaskStatusRunning,
+		CreatedAt: 1, UpdatedAt: 1,
+	})
+	ts.SetExecution(ctx, id, "exec-running-1", model.TaskStatusRunning)
+
+	// Create a pending task
+	ts.Create(ctx, model.Task{
+		MessageID: "msg-c1", WorkerID: w.ID, Instruction: "queued task",
+		Type: model.TaskTypeImmediate, Status: model.TaskStatusPending,
+		CreatedAt: 1, UpdatedAt: 1,
+	})
+
+	result, err := s.CallTool("clear_session", mustMarshal(t, map[string]any{
+		"session_key": "session-Y",
+	}))
+	if err != nil {
+		t.Fatalf("clear_session: %v", err)
+	}
+	m := result.(map[string]any)
+	cancelled, ok := m["cancelled_tasks"].(int64)
+	if !ok || cancelled < 1 {
+		t.Errorf("expected cancelled_tasks >= 1, got %v", m["cancelled_tasks"])
+	}
+
+	// StopExecution should have been called for the running task
+	stopper.mu.Lock()
+	defer stopper.mu.Unlock()
+	if len(stopper.stopped) != 1 || stopper.stopped[0] != "exec-running-1" {
+		t.Errorf("expected StopExecution(exec-running-1), got %v", stopper.stopped)
+	}
+
+	// ClearSession should have been called
+	clearer.mu.Lock()
+	defer clearer.mu.Unlock()
+	if len(clearer.cleared) != 1 || clearer.cleared[0] != "session-Y" {
+		t.Errorf("expected ClearSession(session-Y), got %v", clearer.cleared)
+	}
+}
+
+func TestCallTool_ClearSession_MissingSessionKey(t *testing.T) {
+	s, _, _, _ := setupMCPServerWithClear(t)
+	_, err := s.CallTool("clear_session", mustMarshal(t, map[string]any{}))
+	if err == nil {
+		t.Error("expected error for missing session_key")
 	}
 }
