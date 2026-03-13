@@ -39,11 +39,3 @@ type Platform interface {
 	Receiver() PlatformReceiverAdapter
 	Sender() PlatformSenderAdapter
 }
-
-// Session holds the persistent state for one conversation.
-type Session struct {
-	Key             string
-	Platform        string
-	SessionID       string
-	LastExecutionID string
-}

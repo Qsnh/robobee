@@ -6,8 +6,6 @@ import (
 	"fmt"
 	"strings"
 	"time"
-
-	"github.com/robobee/core/internal/platform"
 )
 
 // BatchMsg is a single row for a bulk insert via CreateBatch.
@@ -120,55 +118,6 @@ func (s *MessageStore) MarkTerminal(ctx context.Context, ids []string, status st
 	_, err := s.db.ExecContext(ctx,
 		fmt.Sprintf(`UPDATE platform_messages SET status = ?, processed_at = ?, updated_at = ? WHERE id IN (%s)`, placeholders),
 		args...,
-	)
-	return err
-}
-
-// GetSession returns the session state derived from the latest message row for
-// the given sessionKey. Returns nil if no session exists, the latest row is a
-// 'clear' sentinel, or no execution has been written yet (execution_id is empty).
-func (s *MessageStore) GetSession(ctx context.Context, sessionKey string) (*platform.Session, error) {
-	row := s.db.QueryRowContext(ctx, `
-		SELECT status, execution_id, session_id, platform
-		FROM platform_messages
-		WHERE session_key = ?
-		  AND (execution_id != '' OR status = 'clear')
-		ORDER BY received_at DESC, rowid DESC
-		LIMIT 1`, sessionKey)
-
-	var status, executionID, sessionID, plt string
-	if err := row.Scan(&status, &executionID, &sessionID, &plt); err == sql.ErrNoRows {
-		return nil, nil
-	} else if err != nil {
-		return nil, err
-	}
-	if status == "clear" || executionID == "" {
-		return nil, nil
-	}
-	return &platform.Session{
-		Key:             sessionKey,
-		Platform:        plt,
-		SessionID:       sessionID,
-		LastExecutionID: executionID,
-	}, nil
-}
-
-// SetExecution records execution metadata on the given message row.
-func (s *MessageStore) SetExecution(ctx context.Context, msgID, executionID, sessionID string) error {
-	_, err := s.db.ExecContext(ctx,
-		`UPDATE platform_messages SET execution_id = ?, session_id = ?, updated_at = ? WHERE id = ?`,
-		executionID, sessionID, time.Now().UnixMilli(), msgID)
-	return err
-}
-
-// SetMessageExecution writes execution_id and session_id back to a platform_messages row,
-// but only when status = 'bee_processed'. This is a no-op if the Feeder rolled the row back.
-func (s *MessageStore) SetMessageExecution(ctx context.Context, messageID, executionID, sessionID string) error {
-	_, err := s.db.ExecContext(ctx,
-		`UPDATE platform_messages
-         SET execution_id = ?, session_id = ?, updated_at = ?
-         WHERE id = ? AND status = 'bee_processed'`,
-		executionID, sessionID, time.Now().UnixMilli(), messageID,
 	)
 	return err
 }
