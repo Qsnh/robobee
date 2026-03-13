@@ -16,12 +16,15 @@ import (
 type mockExecManager struct {
 	execResult model.WorkerExecution
 	getResult  model.WorkerExecution
+	// resumedWithSessionID records the sessionID passed to ExecuteWorkerWithSession
+	resumedWithSessionID string
 }
 
 func (m *mockExecManager) ExecuteWorker(_ context.Context, _, _ string) (model.WorkerExecution, error) {
 	return m.execResult, nil
 }
-func (m *mockExecManager) ReplyExecution(_ context.Context, _, _ string) (model.WorkerExecution, error) {
+func (m *mockExecManager) ExecuteWorkerWithSession(_ context.Context, _, _, sessionID string) (model.WorkerExecution, error) {
+	m.resumedWithSessionID = sessionID
 	return m.execResult, nil
 }
 func (m *mockExecManager) GetExecution(_ string) (model.WorkerExecution, error) {
@@ -34,10 +37,34 @@ func (s *mockTaskStore) SetExecution(_ context.Context, _, _, _ string) error { 
 
 type mockMsgStore struct{}
 
-func (s *mockMsgStore) GetSession(_ context.Context, _ string) (*platform.Session, error) {
-	return nil, nil // no prior session; tests use fresh execution
-}
 func (s *mockMsgStore) SetMessageExecution(_ context.Context, _, _, _ string) error { return nil }
+
+type mockSessionStore struct {
+	data    map[string]string // "sessionKey|agentID" -> sessionID
+	cleared []string          // sessionKeys cleared
+}
+
+func newMockSessionStore() *mockSessionStore {
+	return &mockSessionStore{data: make(map[string]string)}
+}
+
+func (s *mockSessionStore) GetSessionContext(_ context.Context, sessionKey, agentID string) (string, error) {
+	return s.data[sessionKey+"|"+agentID], nil
+}
+func (s *mockSessionStore) UpsertSessionContext(_ context.Context, sessionKey, agentID, sessionID string) error {
+	s.data[sessionKey+"|"+agentID] = sessionID
+	return nil
+}
+func (s *mockSessionStore) ClearSessionContexts(_ context.Context, sessionKey string) error {
+	s.cleared = append(s.cleared, sessionKey)
+	return nil
+}
+
+func newDispatcher(mgr dispatcher.ExecutionManager, ss dispatcher.SessionStore) (*dispatcher.Dispatcher, chan dispatcher.DispatchTask) {
+	in := make(chan dispatcher.DispatchTask, 4)
+	d := dispatcher.New(mgr, &mockTaskStore{}, &mockMsgStore{}, ss, in)
+	return d, in
+}
 
 func dispatchTask(taskType, sessionKey, workerID, instruction string) dispatcher.DispatchTask {
 	return dispatcher.DispatchTask{
@@ -66,12 +93,11 @@ func collectEvents(out <-chan msgsender.SenderEvent, n int, timeout time.Duratio
 }
 
 func TestDispatcher_ImmediateTask_EmitsACKThenResult(t *testing.T) {
-	in := make(chan dispatcher.DispatchTask, 1)
 	mgr := &mockExecManager{
 		execResult: model.WorkerExecution{ID: "exec-1", SessionID: "sess-1"},
 		getResult:  model.WorkerExecution{ID: "exec-1", Status: model.ExecStatusCompleted, Result: "done!"},
 	}
-	d := dispatcher.New(mgr, &mockTaskStore{}, &mockMsgStore{}, in)
+	d, in := newDispatcher(mgr, newMockSessionStore())
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -94,9 +120,9 @@ func TestDispatcher_ImmediateTask_EmitsACKThenResult(t *testing.T) {
 	}
 }
 
-func TestDispatcher_ClearTask_EmitsClearResult(t *testing.T) {
-	in := make(chan dispatcher.DispatchTask, 1)
-	d := dispatcher.New(&mockExecManager{}, &mockTaskStore{}, &mockMsgStore{}, in)
+func TestDispatcher_ClearTask_EmitsClearResultAndClearsSession(t *testing.T) {
+	ss := newMockSessionStore()
+	d, in := newDispatcher(&mockExecManager{}, ss)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -115,13 +141,61 @@ func TestDispatcher_ClearTask_EmitsClearResult(t *testing.T) {
 	if events[0].Content != "✅ 上下文已重置" {
 		t.Errorf("unexpected clear content: %q", events[0].Content)
 	}
+
+	// Give dispatcher goroutine time to call ClearSessionContexts
+	time.Sleep(50 * time.Millisecond)
+	if len(ss.cleared) == 0 || ss.cleared[0] != "s1" {
+		t.Errorf("expected ClearSessionContexts called with s1, got %v", ss.cleared)
+	}
+}
+
+func TestDispatcher_ImmediateTask_ResumesWhenSessionExists(t *testing.T) {
+	ss := newMockSessionStore()
+	ss.data["s1|w1"] = "prior-session-id"
+
+	mgr := &mockExecManager{
+		execResult: model.WorkerExecution{ID: "exec-1", SessionID: "prior-session-id"},
+		getResult:  model.WorkerExecution{ID: "exec-1", Status: model.ExecStatusCompleted, Result: "resumed!"},
+	}
+	d, in := newDispatcher(mgr, ss)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go d.Run(ctx)
+
+	in <- dispatchTask("immediate", "s1", "w1", "follow-up")
+	collectEvents(d.Out(), 2, 2*time.Second)
+
+	if mgr.resumedWithSessionID != "prior-session-id" {
+		t.Errorf("expected ExecuteWorkerWithSession called with prior-session-id, got %q", mgr.resumedWithSessionID)
+	}
+}
+
+func TestDispatcher_ImmediateTask_FreshWhenNoSession(t *testing.T) {
+	ss := newMockSessionStore() // no prior session
+
+	mgr := &mockExecManager{
+		execResult: model.WorkerExecution{ID: "exec-1", SessionID: "new-session"},
+		getResult:  model.WorkerExecution{ID: "exec-1", Status: model.ExecStatusCompleted, Result: "fresh!"},
+	}
+	d, in := newDispatcher(mgr, ss)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go d.Run(ctx)
+
+	in <- dispatchTask("immediate", "s1", "w1", "first message")
+	collectEvents(d.Out(), 2, 2*time.Second)
+
+	if mgr.resumedWithSessionID != "" {
+		t.Errorf("expected ExecuteWorker (not ExecuteWorkerWithSession) for fresh start, but resume was called with %q", mgr.resumedWithSessionID)
+	}
 }
 
 func TestDispatcher_TwoTasks_SameSession_Serialized(t *testing.T) {
-	in := make(chan dispatcher.DispatchTask, 2)
 	blocker := make(chan struct{})
 	mgr := &blockingExecManager{blocker: blocker}
-	d := dispatcher.New(mgr, &mockTaskStore{}, &mockMsgStore{}, in)
+	d, in := newDispatcher(mgr, newMockSessionStore())
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -171,7 +245,7 @@ func (m *blockingExecManager) ExecuteWorker(_ context.Context, _, _ string) (mod
 	<-m.blocker
 	return model.WorkerExecution{ID: "exec-x"}, nil
 }
-func (m *blockingExecManager) ReplyExecution(_ context.Context, _, _ string) (model.WorkerExecution, error) {
+func (m *blockingExecManager) ExecuteWorkerWithSession(_ context.Context, _, _, _ string) (model.WorkerExecution, error) {
 	<-m.blocker
 	return model.WorkerExecution{ID: "exec-x"}, nil
 }

@@ -23,24 +23,26 @@ const (
 // ExecutionManager manages worker executions.
 type ExecutionManager interface {
 	ExecuteWorker(ctx context.Context, workerID, input string) (model.WorkerExecution, error)
-	// ReplyExecution resumes an existing Claude session identified by execID.
-	// Used for immediate tasks where a prior session exists.
-	ReplyExecution(ctx context.Context, execID, input string) (model.WorkerExecution, error)
+	// ExecuteWorkerWithSession resumes an existing Claude session identified by sessionID.
+	ExecuteWorkerWithSession(ctx context.Context, workerID, input, sessionID string) (model.WorkerExecution, error)
 	GetExecution(id string) (model.WorkerExecution, error)
 }
 
 // TaskStore is the subset of store.TaskStore used by the Dispatcher.
 type TaskStore interface {
-	// SetExecution writes execution_id and status to a task row.
 	SetExecution(ctx context.Context, taskID, executionID, status string) error
 }
 
 // MessageStore is the subset of store.MessageStore used by the Dispatcher.
 type MessageStore interface {
-	// GetSession returns the last session (LastExecutionID) for the given session key.
-	GetSession(ctx context.Context, sessionKey string) (*platform.Session, error)
-	// SetMessageExecution writes execution_id and session_id back to platform_messages.
 	SetMessageExecution(ctx context.Context, messageID, executionID, sessionID string) error
+}
+
+// SessionStore is the subset of store.SessionStore used by the Dispatcher.
+type SessionStore interface {
+	GetSessionContext(ctx context.Context, sessionKey, agentID string) (string, error)
+	UpsertSessionContext(ctx context.Context, sessionKey, agentID, sessionID string) error
+	ClearSessionContexts(ctx context.Context, sessionKey string) error
 }
 
 type queueState struct {
@@ -57,26 +59,28 @@ type internalResult struct {
 
 // Dispatcher serializes worker executions per (SessionKey, WorkerID) and emits SenderEvents.
 type Dispatcher struct {
-	ctx       context.Context
-	manager   ExecutionManager
-	taskStore TaskStore
-	msgStore  MessageStore
-	in        <-chan DispatchTask
-	results   chan internalResult
-	out       chan msgsender.SenderEvent
-	queues    map[string]*queueState
+	ctx          context.Context
+	manager      ExecutionManager
+	taskStore    TaskStore
+	msgStore     MessageStore
+	sessionStore SessionStore
+	in           <-chan DispatchTask
+	results      chan internalResult
+	out          chan msgsender.SenderEvent
+	queues       map[string]*queueState
 }
 
 // New constructs a Dispatcher.
-func New(manager ExecutionManager, taskStore TaskStore, msgStore MessageStore, in <-chan DispatchTask) *Dispatcher {
+func New(manager ExecutionManager, taskStore TaskStore, msgStore MessageStore, sessionStore SessionStore, in <-chan DispatchTask) *Dispatcher {
 	return &Dispatcher{
-		manager:   manager,
-		taskStore: taskStore,
-		msgStore:  msgStore,
-		in:        in,
-		results:   make(chan internalResult, 64),
-		out:       make(chan msgsender.SenderEvent, 64),
-		queues:    make(map[string]*queueState),
+		manager:      manager,
+		taskStore:    taskStore,
+		msgStore:     msgStore,
+		sessionStore: sessionStore,
+		in:           in,
+		results:      make(chan internalResult, 64),
+		out:          make(chan msgsender.SenderEvent, 64),
+		queues:       make(map[string]*queueState),
 	}
 }
 
@@ -109,6 +113,9 @@ func queueKey(sessionKey, workerID string) string {
 func (d *Dispatcher) handleInbound(task DispatchTask) {
 	// Handle clear command: evict all session state for this session prefix.
 	if task.TaskType == "clear" {
+		if err := d.sessionStore.ClearSessionContexts(d.ctx, task.SessionKey); err != nil {
+			log.Printf("dispatcher: clear session contexts for %s: %v", task.SessionKey, err)
+		}
 		prefix := task.SessionKey + "|"
 		for key := range d.queues {
 			if strings.HasPrefix(key, prefix) {
@@ -162,13 +169,13 @@ func (d *Dispatcher) executeAsync(ctx context.Context, key string, task Dispatch
 
 	// For immediate tasks, attempt --resume if a prior session exists.
 	if task.TaskType == model.TaskTypeImmediate {
-		sess, sessErr := d.msgStore.GetSession(ctx, task.SessionKey)
+		sessionID, sessErr := d.sessionStore.GetSessionContext(ctx, task.SessionKey, task.WorkerID)
 		if sessErr != nil {
-			log.Printf("dispatcher: get session error: %v", sessErr)
+			log.Printf("dispatcher: get session context error: %v", sessErr)
 		}
-		if sess != nil && sess.LastExecutionID != "" {
-			log.Printf("dispatcher: resuming execID=%s for task %s", sess.LastExecutionID, task.TaskID)
-			exec, err = d.manager.ReplyExecution(ctx, sess.LastExecutionID, task.Instruction)
+		if sessionID != "" {
+			log.Printf("dispatcher: resuming session=%s for task %s", sessionID, task.TaskID)
+			exec, err = d.manager.ExecuteWorkerWithSession(ctx, task.WorkerID, task.Instruction, sessionID)
 			if err != nil {
 				log.Printf("dispatcher: resume error (falling back to fresh): %v", err)
 				exec, err = d.manager.ExecuteWorker(ctx, task.WorkerID, task.Instruction)
@@ -198,14 +205,14 @@ execStarted:
 		d.msgStore.SetMessageExecution(ctx, task.MessageID, exec.ID, exec.SessionID) //nolint:errcheck
 	}
 
-	result := d.waitForResult(ctx, exec.ID, task.TaskID)
+	result := d.waitForResult(ctx, exec.ID, task.TaskID, task.SessionKey, task.WorkerID)
 	select {
 	case d.results <- internalResult{queueKey: key, task: task, content: result}:
 	case <-ctx.Done():
 	}
 }
 
-func (d *Dispatcher) waitForResult(ctx context.Context, executionID, taskID string) string {
+func (d *Dispatcher) waitForResult(ctx context.Context, executionID, taskID, sessionKey, workerID string) string {
 	deadline := time.Now().Add(pollTimeout)
 	lastStatus := ""
 	for time.Now().Before(deadline) {
@@ -223,6 +230,12 @@ func (d *Dispatcher) waitForResult(ctx context.Context, executionID, taskID stri
 			if taskID != "" {
 				d.taskStore.SetExecution(ctx, taskID, executionID, model.TaskStatusCompleted) //nolint:errcheck
 			}
+			// Persist session_id for future resume (only on success)
+			if sessionKey != "" && workerID != "" {
+				if err := d.sessionStore.UpsertSessionContext(ctx, sessionKey, workerID, exec.SessionID); err != nil {
+					log.Printf("dispatcher: upsert session context: %v", err)
+				}
+			}
 			if exec.Result != "" {
 				return exec.Result
 			}
@@ -231,6 +244,7 @@ func (d *Dispatcher) waitForResult(ctx context.Context, executionID, taskID stri
 			if taskID != "" {
 				d.taskStore.SetExecution(ctx, taskID, executionID, model.TaskStatusFailed) //nolint:errcheck
 			}
+			// Do NOT update session_contexts on failure
 			return "❌ 任务执行失败: " + exec.Result
 		}
 		select {
