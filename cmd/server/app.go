@@ -15,7 +15,6 @@ import (
 	"github.com/robobee/core/internal/dispatcher"
 	"github.com/robobee/core/internal/mcp"
 	"github.com/robobee/core/internal/msgingest"
-	"github.com/robobee/core/internal/msgsender"
 	"github.com/robobee/core/internal/platform"
 	"github.com/robobee/core/internal/platform/dingtalk"
 	"github.com/robobee/core/internal/platform/feishu"
@@ -69,16 +68,17 @@ func buildApp(cfg config.Config) (*App, error) {
 	}
 
 	mgr := buildWorkerManager(cfg.Workers, cfg.Runtime, s)
-	mcpSrv := mcp.NewServer(s.workerStore, mgr, s.taskStore)
 
 	dispatchCh := make(chan dispatcher.DispatchTask, 128)
 
-	// Create sender map before pipeline — maps are reference types,
-	// so msgsender.New holds the same map and sees entries added below.
+	// Create sender map before MCPServer — maps are reference types,
+	// so MCPServer holds the same map and sees entries added below.
 	sendersByPlatform := make(map[string]platform.PlatformSenderAdapter)
 
+	mcpSrv := mcp.NewServer(s.workerStore, mgr, s.taskStore, s.msgStore, sendersByPlatform)
+
 	feeder, sched := buildBee(cfg.Bee, s, dispatchCh)
-	ingest, disp, sender := buildPipeline(cfg.MessageQueue, s, mgr, dispatchCh, sendersByPlatform)
+	ingest, disp := buildPipeline(cfg.MessageQueue, s, mgr, dispatchCh)
 	platforms := buildPlatforms(cfg.Feishu, cfg.DingTalk)
 
 	// Populate sender map before goroutines start
@@ -95,7 +95,6 @@ func buildApp(cfg config.Config) (*App, error) {
 		func(ctx context.Context) { feeder.Run(ctx) },
 		func(ctx context.Context) { sched.Run(ctx) },
 		func(ctx context.Context) { disp.Run(ctx) },
-		func(ctx context.Context) { sender.Run(ctx) },
 	}
 	for _, p := range platforms {
 		recv := p.Receiver()
@@ -152,12 +151,10 @@ func buildPipeline(
 	s appStores,
 	mgr *worker.Manager,
 	dispatchCh chan dispatcher.DispatchTask,
-	senders map[string]platform.PlatformSenderAdapter,
-) (*msgingest.Gateway, *dispatcher.Dispatcher, *msgsender.Gateway) {
+) (*msgingest.Gateway, *dispatcher.Dispatcher) {
 	ingest := msgingest.New(s.msgStore, cfg.DebounceWindow)
 	disp := dispatcher.New(mgr, s.taskStore, s.sessionStore, dispatchCh)
-	sender := msgsender.New(senders, disp.Out())
-	return ingest, disp, sender
+	return ingest, disp
 }
 
 func buildPlatforms(fc config.FeishuConfig, dc config.DingTalkConfig) []platform.Platform {
