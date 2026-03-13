@@ -168,26 +168,6 @@ func TestMessageStore_MarkMerged(t *testing.T) {
 	}
 }
 
-func TestMessageStore_MarkTerminal_Done(t *testing.T) {
-	s := setupMessageStore(t)
-	ctx := context.Background()
-
-	s.Create(ctx, "msg-1", "feishu:chat1:userA", "feishu", "hello", "", "", 0) //nolint
-	if err := s.MarkTerminal(ctx, []string{"msg-1"}, "done"); err != nil {
-		t.Fatalf("MarkTerminal done: %v", err)
-	}
-}
-
-func TestMessageStore_MarkTerminal_Failed(t *testing.T) {
-	s := setupMessageStore(t)
-	ctx := context.Background()
-
-	s.Create(ctx, "msg-1", "feishu:chat1:userA", "feishu", "hello", "", "", 0) //nolint
-	if err := s.MarkTerminal(ctx, []string{"msg-1"}, "failed"); err != nil {
-		t.Fatalf("MarkTerminal failed: %v", err)
-	}
-}
-
 func TestMessageStore_Create_Dedup_FirstInsertReturnsTrue(t *testing.T) {
 	s := setupMessageStore(t)
 	ctx := context.Background()
@@ -226,27 +206,6 @@ func TestMessageStore_Create_Dedup_EmptyPlatformMsgIDNotDeduped(t *testing.T) {
 	inserted2, err := s.Create(ctx, "msg-2", "feishu:chat1:userA", "feishu", "hello", "", "", 0)
 	if err != nil || !inserted2 {
 		t.Fatalf("second empty-id insert: err=%v inserted=%v", err, inserted2)
-	}
-}
-
-func TestMessageStore_MarkTerminal_ProcessedAtMillisecondPrecision(t *testing.T) {
-	s := setupMessageStore(t)
-	ctx := context.Background()
-
-	s.Create(ctx, "msg-1", "feishu:chat1:userA", "feishu", "hello", "", "", 0) //nolint
-	if err := s.MarkTerminal(ctx, []string{"msg-1"}, "done"); err != nil {
-		t.Fatalf("MarkTerminal: %v", err)
-	}
-
-	var processedAt int64
-	err := s.db.QueryRowContext(ctx,
-		`SELECT processed_at FROM platform_messages WHERE id = ?`, "msg-1",
-	).Scan(&processedAt)
-	if err != nil {
-		t.Fatalf("scan processed_at: %v", err)
-	}
-	if processedAt <= 0 {
-		t.Errorf("processed_at %d: want positive Unix millisecond timestamp", processedAt)
 	}
 }
 

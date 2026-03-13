@@ -102,26 +102,6 @@ func (s *MessageStore) MarkMerged(ctx context.Context, primaryID string, mergedI
 	return nil
 }
 
-// MarkTerminal sets status to "done" or "failed" and records processed_at.
-func (s *MessageStore) MarkTerminal(ctx context.Context, ids []string, status string) error {
-	if len(ids) == 0 {
-		return nil
-	}
-	placeholders := strings.Repeat("?,", len(ids))
-	placeholders = placeholders[:len(placeholders)-1]
-	now := time.Now().UnixMilli()
-	args := make([]any, 0, len(ids)+3)
-	args = append(args, status, now, now) // status=?, processed_at=?, updated_at=?
-	for _, id := range ids {
-		args = append(args, id)
-	}
-	_, err := s.db.ExecContext(ctx,
-		fmt.Sprintf(`UPDATE platform_messages SET status = ?, processed_at = ?, updated_at = ? WHERE id IN (%s)`, placeholders),
-		args...,
-	)
-	return err
-}
-
 // InsertClearSentinel inserts a 'clear' sentinel row to mark the session as reset.
 func (s *MessageStore) InsertClearSentinel(ctx context.Context, id, sessionKey, plt string) error {
 	now := time.Now().UnixMilli()

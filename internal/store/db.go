@@ -58,7 +58,6 @@ var migrations = []migration{
 		platform_msg_id TEXT NOT NULL DEFAULT '',
 		raw             TEXT NOT NULL DEFAULT '',
 		received_at     INTEGER NOT NULL,
-		processed_at    INTEGER,
 		created_at      INTEGER NOT NULL,
 		updated_at      INTEGER NOT NULL
 	)`,
