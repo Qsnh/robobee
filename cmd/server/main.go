@@ -8,18 +8,18 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/robobee/core/internal/ai"
 	"github.com/robobee/core/internal/api"
+	"github.com/robobee/core/internal/bee"
 	"github.com/robobee/core/internal/config"
-	"github.com/robobee/core/internal/mcp"
 	"github.com/robobee/core/internal/dispatcher"
+	"github.com/robobee/core/internal/mcp"
 	"github.com/robobee/core/internal/msgingest"
-	"github.com/robobee/core/internal/msgrouter"
 	"github.com/robobee/core/internal/msgsender"
 	"github.com/robobee/core/internal/platform"
 	"github.com/robobee/core/internal/platform/dingtalk"
 	"github.com/robobee/core/internal/platform/feishu"
 	"github.com/robobee/core/internal/store"
+	"github.com/robobee/core/internal/taskscheduler"
 	"github.com/robobee/core/internal/worker"
 )
 
@@ -34,45 +34,69 @@ func main() {
 		log.Fatalf("failed to load config: %v", err)
 	}
 
-	// Initialize database
 	db, err := store.InitDB(cfg.Database.Path)
 	if err != nil {
 		log.Fatalf("failed to init database: %v", err)
 	}
 	defer db.Close()
 
-	// Create stores
 	workerStore := store.NewWorkerStore(db)
 	execStore := store.NewExecutionStore(db)
 	msgStore := store.NewMessageStore(db)
 	taskStore := store.NewTaskStore(db)
 
-	// Initialize Claude Code client for routing
-	aiClient, err := ai.NewClaudeCodeClient(cfg.Runtime.ClaudeCode.Binary)
-	if err != nil {
-		log.Fatalf("failed to create AI client: %v", err)
-	}
-
-	// Create worker manager
 	mgr := worker.NewManager(cfg, workerStore, execStore)
 
-	// Graceful shutdown context
-	ctx, cancel := context.WithCancel(context.Background())
+	// MCP server (required by bee)
+	if cfg.MCP.APIKey == "" {
+		log.Fatal("mcp.api_key must be set — bee requires MCP to create tasks")
+	}
+	mcpSrv := mcp.NewServer(workerStore, mgr, taskStore)
 
-	// Build four-layer message pipeline
+	// Build MCP base URL for bee process
+	mcpBaseURL := fmt.Sprintf("http://%s:%d", cfg.Server.Host, cfg.Server.Port)
+
+	// Dispatch channel shared between TaskScheduler and Feeder (for clear commands)
+	dispatchCh := make(chan dispatcher.DispatchTask, 128)
+
+	// Startup recovery (synchronous, before goroutines)
+	feederCfg := bee.FeederConfig{
+		Interval:           cfg.Bee.Feeder.Interval,
+		BatchSize:          cfg.Bee.Feeder.BatchSize,
+		Timeout:            cfg.Bee.Feeder.Timeout,
+		QueueWarnThreshold: cfg.Bee.Feeder.QueueWarnThreshold,
+		WorkDir:            cfg.Bee.WorkDir,
+		Persona:            cfg.Bee.Persona,
+		Binary:             cfg.Runtime.ClaudeCode.Binary,
+		MCPBaseURL:         mcpBaseURL,
+		MCPAPIKey:          cfg.MCP.APIKey,
+	}
+	beeProcess := bee.NewBeeProcess(
+		cfg.Runtime.ClaudeCode.Binary,
+		mcpBaseURL+"/mcp/sse",
+		cfg.MCP.APIKey,
+	)
+	feeder := bee.NewFeeder(msgStore, taskStore, beeProcess, dispatchCh, feederCfg)
+	feeder.RecoverFeeding(context.Background())
+
+	sched := taskscheduler.New(taskStore, dispatchCh, cfg.Bee.Feeder.Interval)
+	sched.RecoverRunning(context.Background())
+
+	// Pipeline
+	ctx, cancel := context.WithCancel(context.Background())
 	sendersByPlatform := make(map[string]platform.PlatformSenderAdapter)
 
 	ingest := msgingest.New(msgStore, cfg.MessageQueue.DebounceWindow)
-	router := msgrouter.New(aiClient, workerStore, ingest.Out())
-	disp := dispatcher.New(mgr, msgStore, router.Out())
+	disp := dispatcher.New(mgr, taskStore, msgStore, dispatchCh)
 	sender := msgsender.New(sendersByPlatform, disp.Out())
 
 	go ingest.Run(ctx)
-	go router.Run(ctx)
+	go feeder.Run(ctx)
+	go sched.Run(ctx)
 	go disp.Run(ctx)
 	go sender.Run(ctx)
 
-	// Register enabled platforms
+	// Register platforms
 	if cfg.Feishu.Enabled {
 		p := feishu.NewPlatform(cfg.Feishu)
 		sendersByPlatform[p.ID()] = p.Sender()
@@ -84,17 +108,8 @@ func main() {
 		go p.Receiver().Start(ctx, ingest.Dispatch)
 	}
 
-	// Start MCP server if configured
-	var mcpSrv *mcp.MCPServer
-	if cfg.MCP.APIKey != "" {
-		mcpSrv = mcp.NewServer(workerStore, mgr, taskStore)
-		log.Println("MCP server enabled at /mcp/sse and /mcp/messages")
-	}
-
-	// Start HTTP API
 	srv := api.NewServer(workerStore, execStore, mgr, mcpSrv, cfg.MCP.APIKey)
 
-	// Graceful shutdown
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	go func() {
