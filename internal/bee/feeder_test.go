@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"sync"
 	"testing"
 	"time"
 
@@ -37,6 +38,7 @@ func insertMessage(t *testing.T, db *sql.DB, id, sessionKey, content string) {
 
 // mockBeeRunner records all Run calls.
 type mockBeeRunner struct {
+	mu    sync.Mutex
 	calls []beeCall
 	err   error
 }
@@ -48,8 +50,16 @@ type beeCall struct {
 }
 
 func (m *mockBeeRunner) Run(_ context.Context, _, prompt, sessionID string, resume bool) error {
+	m.mu.Lock()
 	m.calls = append(m.calls, beeCall{prompt: prompt, sessionID: sessionID, resume: resume})
+	m.mu.Unlock()
 	return m.err
+}
+
+func (m *mockBeeRunner) getCalls() []beeCall {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return append([]beeCall{}, m.calls...) // Return a copy
 }
 
 func newFeeder(ms *store.MessageStore, ts *store.TaskStore, ss *store.SessionStore, runner bee.BeeRunner) *bee.Feeder {
@@ -78,10 +88,11 @@ func TestFeeder_FirstTick_UsesNewSessionID(t *testing.T) {
 	go f.Run(ctx)
 	time.Sleep(150 * time.Millisecond)
 
-	if len(runner.calls) == 0 {
+	calls := runner.getCalls()
+	if len(calls) == 0 {
 		t.Fatal("expected bee runner to be called")
 	}
-	call := runner.calls[0]
+	call := calls[0]
 	if call.sessionID == "" {
 		t.Error("expected non-empty sessionID on first call")
 	}
@@ -127,10 +138,11 @@ func TestFeeder_SecondTick_ResumesSession(t *testing.T) {
 	go f.Run(tickCtx)
 	time.Sleep(150 * time.Millisecond)
 
-	if len(runner.calls) == 0 {
+	calls := runner.getCalls()
+	if len(calls) == 0 {
 		t.Fatal("expected bee runner to be called")
 	}
-	call := runner.calls[0]
+	call := calls[0]
 	if call.sessionID != "existing-session" {
 		t.Errorf("expected existing-session, got %q", call.sessionID)
 	}
@@ -180,8 +192,9 @@ func TestFeeder_MultipleSessionKeys_ProcessedIndependently(t *testing.T) {
 	go f.Run(ctx)
 	time.Sleep(150 * time.Millisecond)
 
-	if len(runner.calls) != 2 {
-		t.Fatalf("expected 2 bee invocations (one per sessionKey), got %d", len(runner.calls))
+	calls := runner.getCalls()
+	if len(calls) != 2 {
+		t.Fatalf("expected 2 bee invocations (one per sessionKey), got %d", len(calls))
 	}
 
 	// Each sessionKey should have its own session context

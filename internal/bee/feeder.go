@@ -184,7 +184,9 @@ func (f *Feeder) processBeeGroup(ctx context.Context, sessionKey string, msgs []
 	// Persist session_id before marking messages processed
 	if err := f.sessionStore.UpsertSessionContext(ctx, sessionKey, store.BeeAgentID, sessionID); err != nil {
 		log.Printf("feeder: upsert session context for %s: %v", sessionKey, err)
-		// non-fatal: continue to mark messages processed
+		// non-fatal: messages are marked processed, but the session ID is not persisted.
+		// On the next tick, GetSessionContext returns "" and bee starts a new session,
+		// losing conversational continuity silently.
 	}
 
 	msgIDs := make([]string, len(msgs))
