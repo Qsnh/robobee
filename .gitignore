@@ -5,3 +5,4 @@ data/workers/
 .worktrees/
 config.yaml
 openclaw/
+.robobee.claude.md

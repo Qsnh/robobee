@@ -10,6 +10,7 @@ import (
 	"github.com/robfig/cron/v3"
 	"github.com/robobee/core/internal/model"
 	"github.com/robobee/core/internal/platform"
+	"github.com/robobee/core/internal/toolnames"
 )
 
 // toolSchema represents a single MCP tool definition returned by tools/list.
@@ -28,7 +29,7 @@ func ToolSchemas() []toolSchema {
 func toolSchemas() []toolSchema {
 	return []toolSchema{
 		{
-			Name:        "list_workers",
+			Name:        toolnames.ListWorkers,
 			Description: "List all workers",
 			InputSchema: map[string]any{
 				"type":       "object",
@@ -36,7 +37,7 @@ func toolSchemas() []toolSchema {
 			},
 		},
 		{
-			Name:        "get_worker",
+			Name:        toolnames.GetWorker,
 			Description: "Get a single worker by ID",
 			InputSchema: map[string]any{
 				"type":     "object",
@@ -47,7 +48,7 @@ func toolSchemas() []toolSchema {
 			},
 		},
 		{
-			Name:        "create_worker",
+			Name:        toolnames.CreateWorker,
 			Description: "Create a new worker",
 			InputSchema: map[string]any{
 				"type":     "object",
@@ -61,7 +62,7 @@ func toolSchemas() []toolSchema {
 			},
 		},
 		{
-			Name:        "update_worker",
+			Name:        toolnames.UpdateWorker,
 			Description: "Update a worker's name, description, or prompt (patch semantics: omitted fields unchanged)",
 			InputSchema: map[string]any{
 				"type":     "object",
@@ -75,7 +76,7 @@ func toolSchemas() []toolSchema {
 			},
 		},
 		{
-			Name:        "delete_worker",
+			Name:        toolnames.DeleteWorker,
 			Description: "Delete a worker",
 			InputSchema: map[string]any{
 				"type":     "object",
@@ -87,7 +88,7 @@ func toolSchemas() []toolSchema {
 			},
 		},
 		{
-			Name:        "create_task",
+			Name:        toolnames.CreateTask,
 			Description: "Create a task assigning a worker to handle a user instruction from a message",
 			InputSchema: map[string]any{
 				"type":     "object",
@@ -104,7 +105,7 @@ func toolSchemas() []toolSchema {
 			},
 		},
 		{
-			Name:        "list_tasks",
+			Name:        toolnames.ListTasks,
 			Description: "List tasks filtered by message_id or session_key (mutually exclusive), optionally filtered by status (supports comma-separated values like 'pending,running')",
 			InputSchema: map[string]any{
 				"type": "object",
@@ -116,7 +117,7 @@ func toolSchemas() []toolSchema {
 			},
 		},
 		{
-			Name:        "cancel_task",
+			Name:        toolnames.CancelTask,
 			Description: "Cancel a pending or scheduled task",
 			InputSchema: map[string]any{
 				"type":     "object",
@@ -127,7 +128,7 @@ func toolSchemas() []toolSchema {
 			},
 		},
 		{
-			Name:        "mark_task_success",
+			Name:        toolnames.MarkTaskSuccess,
 			Description: "Mark a task as successfully completed",
 			InputSchema: map[string]any{
 				"type":     "object",
@@ -138,7 +139,7 @@ func toolSchemas() []toolSchema {
 			},
 		},
 		{
-			Name:        "mark_task_failed",
+			Name:        toolnames.MarkTaskFailed,
 			Description: "Mark a task as failed",
 			InputSchema: map[string]any{
 				"type":     "object",
@@ -150,7 +151,7 @@ func toolSchemas() []toolSchema {
 			},
 		},
 		{
-			Name:        "send_message",
+			Name:        toolnames.SendMessage,
 			Description: "Send a message to the user on the originating platform. Use message_id from the task metadata to identify the reply target.",
 			InputSchema: map[string]any{
 				"type":     "object",
@@ -162,7 +163,7 @@ func toolSchemas() []toolSchema {
 			},
 		},
 		{
-			Name:        "clear_session",
+			Name:        toolnames.ClearSession,
 			Description: "Cancel all active tasks (terminating running worker processes), clear dispatcher queues, and reset all session contexts for the given session. Use this to fully reset a conversation session.",
 			InputSchema: map[string]any{
 				"type":     "object",
@@ -183,29 +184,29 @@ func (s *MCPServer) CallTool(name string, args json.RawMessage) (any, error) {
 // callTool dispatches to the named tool handler and returns the result.
 func (s *MCPServer) callTool(name string, args json.RawMessage) (any, error) {
 	switch name {
-	case "list_workers":
+	case toolnames.ListWorkers:
 		return s.toolListWorkers(args)
-	case "get_worker":
+	case toolnames.GetWorker:
 		return s.toolGetWorker(args)
-	case "create_worker":
+	case toolnames.CreateWorker:
 		return s.toolCreateWorker(args)
-	case "update_worker":
+	case toolnames.UpdateWorker:
 		return s.toolUpdateWorker(args)
-	case "delete_worker":
+	case toolnames.DeleteWorker:
 		return s.toolDeleteWorker(args)
-	case "create_task":
+	case toolnames.CreateTask:
 		return s.toolCreateTask(args)
-	case "list_tasks":
+	case toolnames.ListTasks:
 		return s.toolListTasks(args)
-	case "cancel_task":
+	case toolnames.CancelTask:
 		return s.toolCancelTask(args)
-	case "mark_task_success":
+	case toolnames.MarkTaskSuccess:
 		return s.toolMarkTaskSuccess(args)
-	case "mark_task_failed":
+	case toolnames.MarkTaskFailed:
 		return s.toolMarkTaskFailed(args)
-	case "send_message":
+	case toolnames.SendMessage:
 		return s.toolSendMessage(args)
-	case "clear_session":
+	case toolnames.ClearSession:
 		return s.toolClearSession(args)
 	default:
 		return nil, fmt.Errorf("unknown tool: %s", name)

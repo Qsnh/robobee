@@ -32,6 +32,15 @@ func TestEnsureSystemRules_WritesBeeRules(t *testing.T) {
 	if !strings.Contains(content, "清除上下文处理") {
 		t.Error("missing bee-specific rules (清除上下文处理)")
 	}
+	if !strings.Contains(content, "create_task") {
+		t.Error("missing bee-specific create_task reference in 任务分发流程")
+	}
+	if !strings.Contains(content, "list_workers") {
+		t.Error("missing bee-specific list_workers reference in 任务分发流程")
+	}
+	if !strings.Contains(content, "任务分发流程") {
+		t.Error("missing bee-specific 任务分发流程 section")
+	}
 	if strings.Contains(content, "mark_task_success") {
 		t.Error("bee rules should not contain worker-specific mark_task_success")
 	}
@@ -59,6 +68,15 @@ func TestEnsureSystemRules_WritesWorkerRules(t *testing.T) {
 	}
 	if !strings.Contains(content, "mark_task_failed") {
 		t.Error("missing worker-specific rules (mark_task_failed)")
+	}
+	if !strings.Contains(content, "系统元数据") {
+		t.Error("missing worker-specific 系统元数据 section")
+	}
+	if !strings.Contains(content, "task_id") {
+		t.Error("missing task_id reference in 系统元数据 section")
+	}
+	if !strings.Contains(content, "message_id") {
+		t.Error("missing message_id reference in 系统元数据 section")
 	}
 	if strings.Contains(content, "清除上下文处理") {
 		t.Error("worker rules should not contain bee-specific 清除上下文处理")
