@@ -125,6 +125,35 @@ func (m *Manager) ExecuteWorker(ctx context.Context, workerID, triggerInput stri
 	return exec, nil
 }
 
+// ExecuteWorkerWithSession runs a worker resuming an existing Claude session identified by sessionID.
+// This is used by the Dispatcher when a prior session exists for the (sessionKey, workerID) pair.
+func (m *Manager) ExecuteWorkerWithSession(ctx context.Context, workerID, triggerInput, sessionID string) (model.WorkerExecution, error) {
+	worker, err := m.workerStore.GetByID(workerID)
+	if err != nil {
+		return model.WorkerExecution{}, fmt.Errorf("get worker: %w", err)
+	}
+
+	exec, err := m.executionStore.CreateWithSessionID(workerID, triggerInput, sessionID)
+	if err != nil {
+		return model.WorkerExecution{}, fmt.Errorf("create execution with session: %w", err)
+	}
+
+	if err := m.workerStore.UpdateStatus(worker.ID, model.WorkerStatusWorking); err != nil {
+		log.Printf("failed to update worker status: %v", err)
+	}
+
+	rt := NewClaudeRuntime(m.cfg.Runtime.ClaudeCode.Binary)
+	timeout := m.cfg.Runtime.ClaudeCode.Timeout
+
+	if err := m.launchRuntime(exec, worker, rt, timeout, triggerInput, true); err != nil {
+		m.executionStore.UpdateResult(exec.ID, err.Error(), model.ExecStatusFailed)
+		m.workerStore.UpdateStatus(worker.ID, model.WorkerStatusError)
+		return exec, fmt.Errorf("start runtime: %w", err)
+	}
+
+	return exec, nil
+}
+
 // launchRuntime applies timeout, starts the runtime, registers it, updates PID, and launches monitoring.
 // The execution context is always derived from context.Background() to decouple from the caller's request.
 func (m *Manager) launchRuntime(exec model.WorkerExecution, worker model.Worker, rt Runtime, timeout time.Duration, prompt string, resume bool) error {
