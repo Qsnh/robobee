@@ -7,7 +7,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/robobee/core/internal/model"
 	"github.com/robobee/core/internal/platform"
 )
 
@@ -42,10 +41,11 @@ func (s *MessageStore) Create(ctx context.Context, id, sessionKey, platform, con
 	if messageTime == 0 {
 		messageTime = time.Now().UnixMilli()
 	}
+	now := time.Now().UnixMilli()
 	result, err := s.db.ExecContext(ctx,
-		`INSERT OR IGNORE INTO platform_messages (id, session_key, platform, content, raw, platform_msg_id, received_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?)`,
-		id, sessionKey, platform, content, raw, platformMsgID, messageTime,
+		`INSERT OR IGNORE INTO platform_messages (id, session_key, platform, content, raw, platform_msg_id, received_at, created_at, updated_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		id, sessionKey, platform, content, raw, platformMsgID, messageTime, now, now,
 	)
 	if err != nil {
 		return false, err
@@ -57,20 +57,11 @@ func (s *MessageStore) Create(ctx context.Context, id, sessionKey, platform, con
 	return n == 1, nil
 }
 
-// SetWorkerID sets the worker_id and advances status to "routed".
-func (s *MessageStore) SetWorkerID(ctx context.Context, id, workerID string) error {
-	_, err := s.db.ExecContext(ctx,
-		`UPDATE platform_messages SET worker_id = ?, status = 'routed' WHERE id = ?`,
-		workerID, id,
-	)
-	return err
-}
-
 // SetStatus updates the status of a single message.
 func (s *MessageStore) SetStatus(ctx context.Context, id, status string) error {
 	_, err := s.db.ExecContext(ctx,
-		`UPDATE platform_messages SET status = ? WHERE id = ?`,
-		status, id,
+		`UPDATE platform_messages SET status = ?, updated_at = ? WHERE id = ?`,
+		status, time.Now().UnixMilli(), id,
 	)
 	return err
 }
@@ -82,13 +73,13 @@ func (s *MessageStore) UpdateStatusBatch(ctx context.Context, ids []string, stat
 	}
 	placeholders := strings.Repeat("?,", len(ids))
 	placeholders = placeholders[:len(placeholders)-1]
-	args := make([]any, 0, len(ids)+1)
-	args = append(args, status)
+	args := make([]any, 0, len(ids)+2)
+	args = append(args, status, time.Now().UnixMilli())
 	for _, id := range ids {
 		args = append(args, id)
 	}
 	_, err := s.db.ExecContext(ctx,
-		fmt.Sprintf(`UPDATE platform_messages SET status = ? WHERE id IN (%s)`, placeholders),
+		fmt.Sprintf(`UPDATE platform_messages SET status = ?, updated_at = ? WHERE id IN (%s)`, placeholders),
 		args...,
 	)
 	return err
@@ -96,15 +87,16 @@ func (s *MessageStore) UpdateStatusBatch(ctx context.Context, ids []string, stat
 
 // MarkMerged sets primaryID status to "merged" and records merged_into on all mergedIDs.
 func (s *MessageStore) MarkMerged(ctx context.Context, primaryID string, mergedIDs []string) error {
+	now := time.Now().UnixMilli()
 	if _, err := s.db.ExecContext(ctx,
-		`UPDATE platform_messages SET status = 'merged' WHERE id = ?`, primaryID,
+		`UPDATE platform_messages SET status = 'merged', updated_at = ? WHERE id = ?`, now, primaryID,
 	); err != nil {
 		return err
 	}
 	for _, id := range mergedIDs {
 		if _, err := s.db.ExecContext(ctx,
-			`UPDATE platform_messages SET status = 'merged', merged_into = ? WHERE id = ?`,
-			primaryID, id,
+			`UPDATE platform_messages SET status = 'merged', merged_into = ?, updated_at = ? WHERE id = ?`,
+			primaryID, now, id,
 		); err != nil {
 			return err
 		}
@@ -119,42 +111,17 @@ func (s *MessageStore) MarkTerminal(ctx context.Context, ids []string, status st
 	}
 	placeholders := strings.Repeat("?,", len(ids))
 	placeholders = placeholders[:len(placeholders)-1]
-	args := make([]any, 0, len(ids)+2)
-	args = append(args, status, time.Now().UnixMilli()) // status=?, processed_at=?
+	now := time.Now().UnixMilli()
+	args := make([]any, 0, len(ids)+3)
+	args = append(args, status, now, now) // status=?, processed_at=?, updated_at=?
 	for _, id := range ids {
 		args = append(args, id)
 	}
 	_, err := s.db.ExecContext(ctx,
-		fmt.Sprintf(`UPDATE platform_messages SET status = ?, processed_at = ? WHERE id IN (%s)`, placeholders),
+		fmt.Sprintf(`UPDATE platform_messages SET status = ?, processed_at = ?, updated_at = ? WHERE id IN (%s)`, placeholders),
 		args...,
 	)
 	return err
-}
-
-// GetUnfinished returns messages with an active status that have a worker_id assigned,
-// ordered by received_at ASC. Used for startup recovery.
-func (s *MessageStore) GetUnfinished(ctx context.Context) ([]model.PendingMessage, error) {
-	rows, err := s.db.QueryContext(ctx, `
-		SELECT id, session_key, worker_id, platform, content
-		FROM platform_messages
-		WHERE status IN ('routed', 'executing')
-		  AND worker_id != ''
-		ORDER BY received_at ASC
-	`)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	var msgs []model.PendingMessage
-	for rows.Next() {
-		var m model.PendingMessage
-		if err := rows.Scan(&m.ID, &m.SessionKey, &m.WorkerID, &m.Platform, &m.Content); err != nil {
-			return nil, err
-		}
-		msgs = append(msgs, m)
-	}
-	return msgs, rows.Err()
 }
 
 // GetSession returns the session state derived from the latest message row for
@@ -162,15 +129,15 @@ func (s *MessageStore) GetUnfinished(ctx context.Context) ([]model.PendingMessag
 // 'clear' sentinel, or no execution has been written yet (execution_id is empty).
 func (s *MessageStore) GetSession(ctx context.Context, sessionKey string) (*platform.Session, error) {
 	row := s.db.QueryRowContext(ctx, `
-		SELECT status, worker_id, execution_id, session_id, platform
+		SELECT status, execution_id, session_id, platform
 		FROM platform_messages
 		WHERE session_key = ?
 		  AND (execution_id != '' OR status = 'clear')
 		ORDER BY received_at DESC, rowid DESC
 		LIMIT 1`, sessionKey)
 
-	var status, workerID, executionID, sessionID, plt string
-	if err := row.Scan(&status, &workerID, &executionID, &sessionID, &plt); err == sql.ErrNoRows {
+	var status, executionID, sessionID, plt string
+	if err := row.Scan(&status, &executionID, &sessionID, &plt); err == sql.ErrNoRows {
 		return nil, nil
 	} else if err != nil {
 		return nil, err
@@ -181,7 +148,6 @@ func (s *MessageStore) GetSession(ctx context.Context, sessionKey string) (*plat
 	return &platform.Session{
 		Key:             sessionKey,
 		Platform:        plt,
-		WorkerID:        workerID,
 		SessionID:       sessionID,
 		LastExecutionID: executionID,
 	}, nil
@@ -190,8 +156,8 @@ func (s *MessageStore) GetSession(ctx context.Context, sessionKey string) (*plat
 // SetExecution records execution metadata on the given message row.
 func (s *MessageStore) SetExecution(ctx context.Context, msgID, executionID, sessionID string) error {
 	_, err := s.db.ExecContext(ctx,
-		`UPDATE platform_messages SET execution_id = ?, session_id = ? WHERE id = ?`,
-		executionID, sessionID, msgID)
+		`UPDATE platform_messages SET execution_id = ?, session_id = ?, updated_at = ? WHERE id = ?`,
+		executionID, sessionID, time.Now().UnixMilli(), msgID)
 	return err
 }
 
@@ -200,19 +166,20 @@ func (s *MessageStore) SetExecution(ctx context.Context, msgID, executionID, ses
 func (s *MessageStore) SetMessageExecution(ctx context.Context, messageID, executionID, sessionID string) error {
 	_, err := s.db.ExecContext(ctx,
 		`UPDATE platform_messages
-         SET execution_id = ?, session_id = ?
+         SET execution_id = ?, session_id = ?, updated_at = ?
          WHERE id = ? AND status = 'bee_processed'`,
-		executionID, sessionID, messageID,
+		executionID, sessionID, time.Now().UnixMilli(), messageID,
 	)
 	return err
 }
 
 // InsertClearSentinel inserts a 'clear' sentinel row to mark the session as reset.
 func (s *MessageStore) InsertClearSentinel(ctx context.Context, id, sessionKey, plt string) error {
+	now := time.Now().UnixMilli()
 	_, err := s.db.ExecContext(ctx,
-		`INSERT INTO platform_messages (id, session_key, platform, content, status, received_at)
-		 VALUES (?, ?, ?, '', 'clear', ?)`,
-		id, sessionKey, plt, time.Now().UnixMilli())
+		`INSERT INTO platform_messages (id, session_key, platform, content, status, received_at, created_at, updated_at)
+		 VALUES (?, ?, ?, '', 'clear', ?, ?, ?)`,
+		id, sessionKey, plt, now, now, now)
 	return err
 }
 
@@ -263,13 +230,13 @@ func (s *MessageStore) ClaimBatch(ctx context.Context, batchSize int) ([]Claimed
 	}
 	placeholders := strings.Repeat("?,", len(ids))
 	placeholders = placeholders[:len(placeholders)-1]
-	args := make([]any, 0, len(ids)+1)
-	args = append(args, "feeding")
+	args := make([]any, 0, len(ids)+2)
+	args = append(args, "feeding", time.Now().UnixMilli())
 	for _, id := range ids {
 		args = append(args, id)
 	}
 	if _, err := tx.ExecContext(ctx,
-		`UPDATE platform_messages SET status = ? WHERE id IN (`+placeholders+`)`, args...); err != nil {
+		`UPDATE platform_messages SET status = ?, updated_at = ? WHERE id IN (`+placeholders+`)`, args...); err != nil {
 		return nil, fmt.Errorf("update feeding: %w", err)
 	}
 	return msgs, tx.Commit()
@@ -331,22 +298,22 @@ func (s *MessageStore) CreateBatch(ctx context.Context, msgs []BatchMsg) (int64,
 	}
 
 	now := time.Now().UnixMilli()
-	placeholders := strings.Repeat("(?,?,?,?,?,?,?,?,?),", len(msgs))
+	placeholders := strings.Repeat("(?,?,?,?,?,?,?,?,?,?,?),", len(msgs))
 	placeholders = placeholders[:len(placeholders)-1]
 
-	args := make([]any, 0, len(msgs)*9)
+	args := make([]any, 0, len(msgs)*11)
 	for _, m := range msgs {
 		mt := m.MessageTime
 		if mt == 0 {
 			mt = now
 		}
 		args = append(args, m.ID, m.SessionKey, m.Platform, m.Content, m.Raw,
-			m.PlatformMsgID, mt, m.Status, m.MergedInto)
+			m.PlatformMsgID, mt, m.Status, m.MergedInto, now, now)
 	}
 
 	result, err := s.db.ExecContext(ctx,
 		fmt.Sprintf(`INSERT OR IGNORE INTO platform_messages
-			(id, session_key, platform, content, raw, platform_msg_id, received_at, status, merged_into)
+			(id, session_key, platform, content, raw, platform_msg_id, received_at, status, merged_into, created_at, updated_at)
 			VALUES %s`, placeholders),
 		args...,
 	)
