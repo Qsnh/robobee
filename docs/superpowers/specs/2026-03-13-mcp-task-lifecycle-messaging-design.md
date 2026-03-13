@@ -122,13 +122,16 @@ func NewServer(
 
 ### app.go wiring
 
-`sendersByPlatform` is already constructed in `buildApp` and populated before goroutines start. Pass it directly to `NewServer` alongside `s.msgStore`:
+Currently `mcpSrv` is constructed at line 72, **before** `sendersByPlatform` is created at line 78. Move the `NewServer` call to after `sendersByPlatform := make(...)` so the map can be passed in:
 
 ```go
+sendersByPlatform := make(map[string]platform.PlatformSenderAdapter)
+// ... buildBee, buildPipeline ...
 mcpSrv := mcp.NewServer(s.workerStore, mgr, s.taskStore, s.msgStore, sendersByPlatform)
+// ... buildPlatforms, populate sendersByPlatform ...
 ```
 
-`sendersByPlatform` is a map (reference type), so MCPServer and app share the same instance.
+`sendersByPlatform` is a map (reference type). It can be empty at `NewServer` construction time — the existing population loop fills it before any goroutines start, and MCPServer shares the same map instance.
 
 ## Store Layer Changes
 
@@ -142,25 +145,54 @@ Used by `mark_task_success` and `mark_task_failed`. The existing `SetExecution` 
 
 ### `MessageStore.GetByID` (new)
 
+There is no `model.PlatformMessage` type. Add a store-local struct and method:
+
 ```go
-func (s *MessageStore) GetByID(ctx context.Context, id string) (model.PlatformMessage, error)
+// StoredMessage is the subset of platform_messages fields needed for sending.
+type StoredMessage struct {
+    Platform   string
+    SessionKey string
+    Raw        string
+}
+
+func (s *MessageStore) GetByID(ctx context.Context, id string) (StoredMessage, error)
 ```
 
-Returns the stored platform message including `Platform`, `SessionKey`, and `Raw`. Both `FeishuSender` and `DingTalkSender` require `Raw` to reconstruct reply context.
+Queries `platform_messages` for `platform`, `session_key`, `raw` by `id`.
+
+### `send_message` InboundMessage reconstruction
+
+`send_message` reconstructs a minimal `platform.InboundMessage` from the stored row to pass as `ReplyTo`. Only the fields both platform senders actually access are required:
+
+```go
+inbound := platform.InboundMessage{
+    Platform:   stored.Platform,
+    SessionKey: stored.SessionKey,
+    Raw:        stored.Raw,
+}
+outbound := platform.OutboundMessage{ReplyTo: inbound, Content: content}
+senders[stored.Platform].Send(ctx, outbound)
+```
+
+`FeishuSender.Send` uses `Raw` to unmarshal event data (chatId, chatType, messageId) and `Platform` is used for sender lookup. `DingTalkSender.Send` uses `Raw` to get `SessionWebhook`. All other `InboundMessage` fields (`SenderID`, `PlatformMessageID`, etc.) are zero-valued and unused by both senders.
 
 ## Dispatcher Simplification
 
 ### Removed
 
 - `out chan msgsender.SenderEvent` field and `Out()` method
-- ACK sending (`SenderEventACK`) on task start
-- Result/error sending (`SenderEventResult`, `SenderEventError`) after execution
+- ACK sending (`SenderEventACK`) on task start (`handleInbound`)
+- Result/error sending (`SenderEventResult`, `SenderEventError`) in `handleResult`
+- Clear command confirmation send (`d.out <- SenderEvent{..., Content: clearMsg}`) in `handleInbound` — **note: this message was already silently dropped** because the clear `DispatchTask` carries no `Raw` field, causing both `FeishuSender` and `DingTalkSender` to fail their unmarshal and return nil; the UX is unchanged
+- `SetExecution` calls for terminal statuses in `waitForResult`: remove the `TaskStatusCompleted` and `TaskStatusFailed` writes — workers own terminal status via `mark_task_success/failed`. The `SetExecution` call that records the execution ID and sets `TaskStatusRunning` at execution start is **kept**
+- `internalResult.content` field (no longer used after result sending is removed)
 - Import of `msgsender` package
 
 ### Retained
 
 - Per-(session, worker) queue for serialized execution ordering
-- `waitForResult` polling loop — still needed to detect execution completion and advance the queue to the next pending task
+- `waitForResult` polling loop — still needed to detect execution completion and advance the queue to the next pending task. It still polls until exec status is `completed` or `failed`, then sends to `d.results` to trigger queue advancement. It no longer writes terminal task status.
+- Session context upsert on successful completion in `waitForResult` (this is dispatcher's responsibility, not the worker's)
 
 ### Worker instruction injection
 
@@ -207,7 +239,7 @@ User message
 | File | Change |
 |------|--------|
 | `internal/mcp/server.go` | Add `messageStore`, `senders` fields; update `NewServer` |
-| `internal/mcp/tools.go` | Add 3 tool schemas + 3 tool handlers |
+| `internal/mcp/tools.go` | Add 3 tool schemas + 3 tool handlers; update stale comment ("5 worker CRUD tools") and any test count assertions |
 | `internal/store/task_store.go` | Add `UpdateStatus` |
 | `internal/store/message_store.go` | Add `GetByID` |
 | `internal/dispatcher/dispatcher.go` | Remove `out` channel, ACK/result sending; add instruction injection |
