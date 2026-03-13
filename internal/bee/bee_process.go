@@ -4,11 +4,12 @@ import (
 	"bufio"
 	"context"
 	"fmt"
-	"log"
 	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sync"
+	"time"
 
 	"github.com/robobee/core/internal/config"
 )
@@ -73,24 +74,49 @@ func (p *BeeProcess) Run(ctx context.Context, workDir, prompt, sessionID string,
 		return fmt.Errorf("stderr pipe: %w", err)
 	}
 
+	// Create log file for this run.
+	sid := sessionID
+	if sid == "" {
+		sid = "nosession"
+	}
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return fmt.Errorf("get home dir: %w", err)
+	}
+	logDir := filepath.Join(homeDir, ".robobee", "bee-logs")
+	if err := os.MkdirAll(logDir, 0o755); err != nil {
+		return fmt.Errorf("mkdir bee-logs: %w", err)
+	}
+	logFileName := fmt.Sprintf("%s_%s.log", sid, time.Now().Format("20060102_150405"))
+	logFile, err := os.OpenFile(filepath.Join(logDir, logFileName), os.O_CREATE|os.O_WRONLY, 0o644)
+	if err != nil {
+		return fmt.Errorf("open bee log file: %w", err)
+	}
+	defer logFile.Close()
+
 	if err := cmd.Start(); err != nil {
 		return fmt.Errorf("start bee: %w", err)
 	}
 
-	// Drain stdout/stderr to prevent pipe buffer from blocking
+	// Drain stdout/stderr into log file.
+	var wg sync.WaitGroup
+	wg.Add(2)
 	go func() {
+		defer wg.Done()
 		scanner := bufio.NewScanner(stdout)
 		for scanner.Scan() {
-			log.Printf("bee: %s", scanner.Text())
+			fmt.Fprintf(logFile, "[stdout] %s\n", scanner.Text())
 		}
 	}()
 	go func() {
+		defer wg.Done()
 		scanner := bufio.NewScanner(stderr)
 		for scanner.Scan() {
-			log.Printf("bee stderr: %s", scanner.Text())
+			fmt.Fprintf(logFile, "[stderr] %s\n", scanner.Text())
 		}
 	}()
 
+	wg.Wait()
 	if err := cmd.Wait(); err != nil {
 		return fmt.Errorf("bee exited with error: %w", err)
 	}
