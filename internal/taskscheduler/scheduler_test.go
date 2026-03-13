@@ -19,7 +19,7 @@ func setupDB(t *testing.T) (*sql.DB, *store.TaskStore) {
 		t.Fatalf("InitDB: %v", err)
 	}
 	db.Exec(`INSERT INTO workers (id,name,work_dir,status,created_at,updated_at) VALUES ('w1','W','/','idle',1,1)`)
-	db.Exec(`INSERT INTO platform_messages (id,session_key,platform,content,received_at) VALUES ('m1','sk','feishu','hi',1)`)
+	db.Exec(`INSERT INTO platform_messages (id,session_key,platform,content,received_at,created_at,updated_at) VALUES ('m1','sk','feishu','hi',1,1,1)`)
 	return db, store.NewTaskStore(db)
 }
 

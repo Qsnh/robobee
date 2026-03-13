@@ -33,7 +33,7 @@ func TestInitDB_PlatformMessagesTable(t *testing.T) {
 	}
 	defer db.Close()
 
-	_, err = db.Exec(`INSERT INTO platform_messages (id, session_key, platform, content, received_at) VALUES ('x','sk','p','c',1)`)
+	_, err = db.Exec(`INSERT INTO platform_messages (id, session_key, platform, content, received_at, created_at, updated_at) VALUES ('x','sk','p','c',1,1,1)`)
 	if err != nil {
 		t.Fatalf("platform_messages table not created: %v", err)
 	}
@@ -92,7 +92,7 @@ func TestInitDB_TasksTable(t *testing.T) {
 	defer db.Close()
 
 	db.Exec(`INSERT INTO workers (id,name,work_dir,status,created_at,updated_at) VALUES ('w1','W','/','idle',1,1)`)
-	db.Exec(`INSERT INTO platform_messages (id,session_key,platform,content,received_at) VALUES ('m1','sk','p','c',1)`)
+	db.Exec(`INSERT INTO platform_messages (id,session_key,platform,content,received_at,created_at,updated_at) VALUES ('m1','sk','p','c',1,1,1)`)
 
 	_, err = db.Exec(`INSERT INTO tasks
 		(id, message_id, worker_id, instruction, type, created_at, updated_at)

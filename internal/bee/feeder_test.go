@@ -18,8 +18,8 @@ func setupFeederDB(t *testing.T) (*sql.DB, *store.MessageStore, *store.TaskStore
 	if err != nil {
 		t.Fatalf("InitDB: %v", err)
 	}
-	db.Exec(`INSERT INTO platform_messages (id, session_key, platform, content, status, received_at)
-             VALUES ('m1', 'feishu:c:u', 'feishu', 'hello', 'received', 1)`)
+	db.Exec(`INSERT INTO platform_messages (id, session_key, platform, content, status, received_at, created_at, updated_at)
+             VALUES ('m1', 'feishu:c:u', 'feishu', 'hello', 'received', 1, 1, 1)`)
 	return db, store.NewMessageStore(db), store.NewTaskStore(db)
 }
 
