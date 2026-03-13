@@ -300,16 +300,3 @@ func TestMessageStore_GetByID_NotFound(t *testing.T) {
 		t.Error("expected error for missing message, got nil")
 	}
 }
-
-func TestMessageStore_InsertClearSentinel_UnaffectedByDedupSchema(t *testing.T) {
-	s := setupMessageStore(t)
-	ctx := context.Background()
-
-	// Two clear sentinels for different sessions — both must succeed
-	if err := s.InsertClearSentinel(ctx, "clear-a", "feishu:chat1:userA", "feishu"); err != nil {
-		t.Fatalf("InsertClearSentinel A: %v", err)
-	}
-	if err := s.InsertClearSentinel(ctx, "clear-b", "feishu:chat2:userB", "feishu"); err != nil {
-		t.Fatalf("InsertClearSentinel B: %v", err)
-	}
-}

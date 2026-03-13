@@ -3,7 +3,6 @@ package msgingest
 import (
 	"context"
 	"log"
-	"strings"
 	"sync"
 	"time"
 
@@ -14,14 +13,6 @@ import (
 
 const mergedSeparator = "\n\n---\n\n"
 
-// CommandType identifies a built-in command in a message.
-type CommandType string
-
-const (
-	CommandNone  CommandType = ""
-	CommandClear CommandType = "clear"
-)
-
 // IngestedMessage is a deduplicated, debounced, normalized message ready for routing.
 type IngestedMessage struct {
 	MsgID      string
@@ -29,7 +20,6 @@ type IngestedMessage struct {
 	Platform   string
 	Content    string
 	ReplyTo    platform.InboundMessage
-	Command    CommandType
 }
 
 // MessageStore is the subset of store.MessageStore used by msgingest.
@@ -98,13 +88,6 @@ func (g *Gateway) Dispatch(msg platform.InboundMessage) {
 		g.seen[msg.PlatformMessageID] = struct{}{}
 	}
 
-	// Command detection: release lock, then handle command.
-	if cmd := detectCommand(msg.Content); cmd != CommandNone {
-		g.mu.Unlock()
-		g.handleCommand(msg, cmd)
-		return
-	}
-
 	// Accumulate into debounce state.
 	state, ok := g.sessions[msg.SessionKey]
 	if !ok {
@@ -128,57 +111,6 @@ func (g *Gateway) Dispatch(msg platform.InboundMessage) {
 	state.timer = time.AfterFunc(g.debounce, func() { g.onDebounce(sessionKey, gen) })
 
 	g.mu.Unlock()
-}
-
-// handleCommand cancels any active debounce for the session (discarding pending
-// normal messages without writing them to DB), writes the command message to DB,
-// then emits the command IngestedMessage.
-//
-// Known accepted race: between Dispatch releasing the lock and this function
-// reacquiring it, another concurrent Dispatch for the same session could
-// accumulate a new message. That message is silently discarded here. This race
-// exists in the original codebase and is accepted — a simultaneous clear and
-// normal message is an edge case with no meaningful expected outcome.
-func (g *Gateway) handleCommand(msg platform.InboundMessage, cmd CommandType) {
-	g.mu.Lock()
-	if state, ok := g.sessions[msg.SessionKey]; ok {
-		if state.timer != nil {
-			state.timer.Stop()
-		}
-		delete(g.sessions, msg.SessionKey)
-	}
-	g.mu.Unlock()
-
-	mt := msg.MessageTime
-	if mt == 0 {
-		mt = time.Now().UnixMilli()
-	}
-	batch := []store.BatchMsg{{
-		ID:            uuid.New().String(),
-		SessionKey:    msg.SessionKey,
-		Platform:      msg.Platform,
-		Content:       msg.Content,
-		Raw:           msg.Raw,
-		PlatformMsgID: msg.PlatformMessageID,
-		MessageTime:   mt,
-		Status:        "received",
-		MergedInto:    "",
-	}}
-	cmdID := batch[0].ID
-
-	if _, err := g.msgStore.CreateBatch(context.Background(), batch); err != nil {
-		log.Printf("msgingest: CreateBatch error for command sessionKey=%s: %v", msg.SessionKey, err)
-		return
-	}
-
-	g.emit(IngestedMessage{
-		MsgID:      cmdID,
-		SessionKey: msg.SessionKey,
-		Platform:   msg.Platform,
-		Content:    msg.Content,
-		ReplyTo:    msg,
-		Command:    cmd,
-	})
 }
 
 func (g *Gateway) onDebounce(sessionKey string, generation int) {
@@ -246,14 +178,5 @@ func (g *Gateway) onDebounce(sessionKey string, generation int) {
 		Platform:   msgs[n-1].Platform,
 		Content:    content,
 		ReplyTo:    msgs[n-1],
-		Command:    CommandNone,
 	})
-}
-
-func detectCommand(content string) CommandType {
-	switch strings.ToLower(strings.TrimSpace(content)) {
-	case "clear":
-		return CommandClear
-	}
-	return CommandNone
 }

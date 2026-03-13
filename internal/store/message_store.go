@@ -102,16 +102,6 @@ func (s *MessageStore) MarkMerged(ctx context.Context, primaryID string, mergedI
 	return nil
 }
 
-// InsertClearSentinel inserts a 'clear' sentinel row to mark the session as reset.
-func (s *MessageStore) InsertClearSentinel(ctx context.Context, id, sessionKey, plt string) error {
-	now := time.Now().UnixMilli()
-	_, err := s.db.ExecContext(ctx,
-		`INSERT INTO platform_messages (id, session_key, platform, content, status, received_at, created_at, updated_at)
-		 VALUES (?, ?, ?, '', 'clear', ?, ?, ?)`,
-		id, sessionKey, plt, now, now, now)
-	return err
-}
-
 // CreateBatch inserts multiple message rows in a single transaction using
 // ClaimedMessage is a platform_messages row claimed by the Feeder.
 type ClaimedMessage struct {

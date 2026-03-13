@@ -10,8 +10,6 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/robobee/core/internal/config"
-	"github.com/robobee/core/internal/dispatcher"
-	"github.com/robobee/core/internal/platform"
 	"github.com/robobee/core/internal/store"
 )
 
@@ -26,18 +24,16 @@ type Feeder struct {
 	taskStore    *store.TaskStore
 	sessionStore *store.SessionStore
 	runner       BeeRunner
-	clearCh      chan<- dispatcher.DispatchTask
 	cfg          config.BeeConfig
 }
 
 // NewFeeder creates a Feeder.
-func NewFeeder(ms *store.MessageStore, ts *store.TaskStore, ss *store.SessionStore, runner BeeRunner, clearCh chan<- dispatcher.DispatchTask, cfg config.BeeConfig) *Feeder {
+func NewFeeder(ms *store.MessageStore, ts *store.TaskStore, ss *store.SessionStore, runner BeeRunner, cfg config.BeeConfig) *Feeder {
 	return &Feeder{
 		msgStore:     ms,
 		taskStore:    ts,
 		sessionStore: ss,
 		runner:       runner,
-		clearCh:      clearCh,
 		cfg:          cfg,
 	}
 }
@@ -75,13 +71,11 @@ func (f *Feeder) Run(ctx context.Context) {
 }
 
 func (f *Feeder) tick(ctx context.Context) {
-	// Check queue health
 	count, _ := f.msgStore.CountReceived(ctx)
 	if count > f.cfg.Feeder.QueueWarnThreshold {
 		log.Printf("feeder: WARNING: %d unprocessed messages in queue (threshold: %d)", count, f.cfg.Feeder.QueueWarnThreshold)
 	}
 
-	// Claim a batch atomically
 	msgs, err := f.msgStore.ClaimBatch(ctx, f.cfg.Feeder.BatchSize)
 	if err != nil {
 		log.Printf("feeder: claim batch: %v", err)
@@ -91,46 +85,14 @@ func (f *Feeder) tick(ctx context.Context) {
 		return
 	}
 
-	// Separate clear commands from regular messages
-	var clearMsgs, regularMsgs []store.ClaimedMessage
-	for _, m := range msgs {
-		if detectClear(m.Content) {
-			clearMsgs = append(clearMsgs, m)
-		} else {
-			regularMsgs = append(regularMsgs, m)
-		}
-	}
-
-	// Handle clear commands directly (bypass bee)
-	for _, m := range clearMsgs {
-		f.msgStore.MarkBeeProcessed(ctx, []string{m.ID}) //nolint:errcheck
-		select {
-		case f.clearCh <- dispatcher.DispatchTask{
-			TaskType:   "clear",
-			SessionKey: m.SessionKey,
-			ReplyTo: platform.InboundMessage{
-				Platform:   m.Platform,
-				SessionKey: m.SessionKey,
-			},
-		}:
-		default:
-		}
-	}
-
-	if len(regularMsgs) == 0 {
-		return
-	}
-
-	// Write CLAUDE.md with persona once, before fan-out (all goroutines share workDir)
 	if err := WriteCLAUDEMD(f.cfg.WorkDir, f.cfg.Persona); err != nil {
 		log.Printf("feeder: write CLAUDE.md: %v", err)
-		f.rollback(ctx, regularMsgs)
+		f.rollback(ctx, msgs)
 		return
 	}
 
-	// Group by sessionKey and process each group concurrently
 	groups := make(map[string][]store.ClaimedMessage)
-	for _, m := range regularMsgs {
+	for _, m := range msgs {
 		groups[m.SessionKey] = append(groups[m.SessionKey], m)
 	}
 
@@ -197,10 +159,6 @@ func (f *Feeder) rollback(ctx context.Context, msgs []store.ClaimedMessage) {
 	if err := f.msgStore.ResetFeedingBatch(ctx, ids); err != nil {
 		log.Printf("feeder: rollback messages: %v", err)
 	}
-}
-
-func detectClear(content string) bool {
-	return strings.TrimSpace(strings.ToLower(content)) == "clear"
 }
 
 func buildPrompt(msgs []store.ClaimedMessage) string {

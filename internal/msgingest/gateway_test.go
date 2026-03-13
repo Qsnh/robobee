@@ -94,9 +94,6 @@ func TestGateway_Debounce_EmitsSingleMergedMessage(t *testing.T) {
 
 	select {
 	case msg := <-g.Out():
-		if msg.Command != msgingest.CommandNone {
-			t.Fatalf("expected normal message, got command %q", msg.Command)
-		}
 		if msg.Content != "hello\n\n---\n\nworld" {
 			t.Fatalf("expected merged content, got %q", msg.Content)
 		}
@@ -210,25 +207,6 @@ func TestGateway_BatchWrite_Error_NormalPath(t *testing.T) {
 	}
 }
 
-// TestGateway_BatchWrite_Error_CommandPath verifies that a CreateBatch error
-// during command handling suppresses the emit.
-func TestGateway_BatchWrite_Error_CommandPath(t *testing.T) {
-	st := newMock().withError(errors.New("db down"))
-	g := msgingest.New(st, 100*time.Millisecond)
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	go g.Run(ctx)
-
-	g.Dispatch(inbound("s1", "clear", "cmd-1"))
-
-	select {
-	case msg := <-g.Out():
-		t.Fatalf("expected no emit on CreateBatch error, got: %+v", msg)
-	case <-time.After(300 * time.Millisecond):
-		// expected
-	}
-}
-
 // TestGateway_BatchWrite_PartialInsert verifies that rowsInserted < N suppresses
 // the emit (covers the case where the primary is ignored but merged rows succeed).
 func TestGateway_BatchWrite_PartialInsert(t *testing.T) {
@@ -251,9 +229,9 @@ func TestGateway_BatchWrite_PartialInsert(t *testing.T) {
 	}
 }
 
-// TestGateway_Command_EmitsOnOut verifies that a command message appears on Out()
-// with the correct Command field.
-func TestGateway_Command_EmitsOnOut(t *testing.T) {
+// TestGateway_ClearMessage_DebounceAsNormal verifies that a "clear" message is
+// debounced normally (no special command handling).
+func TestGateway_ClearMessage_DebounceAsNormal(t *testing.T) {
 	st := newMock()
 	g := msgingest.New(st, 100*time.Millisecond)
 	ctx, cancel := context.WithCancel(context.Background())
@@ -264,51 +242,39 @@ func TestGateway_Command_EmitsOnOut(t *testing.T) {
 
 	select {
 	case msg := <-g.Out():
-		if msg.Command != msgingest.CommandClear {
-			t.Fatalf("expected CommandClear, got %q", msg.Command)
+		if msg.Content != "clear" {
+			t.Fatalf("expected content 'clear', got %q", msg.Content)
 		}
-		if msg.SessionKey != "s1" {
-			t.Fatalf("expected SessionKey=s1, got %q", msg.SessionKey)
-		}
-	case <-time.After(300 * time.Millisecond):
-		t.Fatal("timeout waiting for command message")
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("timeout waiting for debounced message")
 	}
 }
 
-// TestGateway_Command_InterruptsDebounce verifies that a clear command arriving
-// during a debounce window cancels the window, discards normal messages without
-// writing them to DB, and writes only the command message via CreateBatch.
-func TestGateway_Command_InterruptsDebounce(t *testing.T) {
+// TestGateway_ClearMessage_MergedWithDebounce verifies that "clear" sent after
+// a normal message within the debounce window is merged into one message.
+func TestGateway_ClearMessage_MergedWithDebounce(t *testing.T) {
 	st := newMock()
 	g := msgingest.New(st, 200*time.Millisecond)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	go g.Run(ctx)
 
-	g.Dispatch(inbound("s1", "hello", "m1"))        // goes into debounce
-	g.Dispatch(inbound("s1", "clear", "cmd-1")) // command: interrupts
+	g.Dispatch(inbound("s1", "hello", "m1"))
+	g.Dispatch(inbound("s1", "clear", "cmd-1"))
 
 	select {
 	case msg := <-g.Out():
-		if msg.Command != msgingest.CommandClear {
-			t.Fatalf("expected CommandClear, got %q", msg.Command)
+		if msg.Content != "hello\n\n---\n\nclear" {
+			t.Fatalf("expected merged content, got %q", msg.Content)
 		}
 	case <-time.After(500 * time.Millisecond):
-		t.Fatal("timeout waiting for command message")
+		t.Fatal("timeout waiting for debounced message")
 	}
 
-	// The debounced normal message must NOT appear
+	// No extra messages
 	select {
 	case extra := <-g.Out():
-		t.Fatalf("debounced message should have been cancelled, got: %+v", extra)
-	case <-time.After(400 * time.Millisecond):
-	}
-
-	// Exactly one CreateBatch call (for the command), zero calls for normal messages
-	if len(st.batches) != 1 {
-		t.Fatalf("expected exactly 1 CreateBatch call (command only), got %d", len(st.batches))
-	}
-	if st.batches[0][0].Status != "received" {
-		t.Errorf("command row: want status=received, got %q", st.batches[0][0].Status)
+		t.Fatalf("unexpected extra message: %+v", extra)
+	case <-time.After(300 * time.Millisecond):
 	}
 }
