@@ -29,7 +29,7 @@ func setupMCPServer(t *testing.T) *mcp.MCPServer {
 			ClaudeCode: config.RuntimeEntry{Binary: "claude"},
 		},
 	}
-	mgr := worker.NewManager(cfg, ws, es)
+	mgr := worker.NewManager(cfg.Workers, cfg.Runtime, ws, es)
 	return mcp.NewServer(ws, mgr, ts)
 }
 
