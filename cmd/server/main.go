@@ -46,7 +46,7 @@ func main() {
 	taskStore := store.NewTaskStore(db)
 	sessionStore := store.NewSessionStore(db)
 
-	mgr := worker.NewManager(cfg, workerStore, execStore)
+	mgr := worker.NewManager(cfg.Workers, cfg.Runtime, workerStore, execStore)
 
 	// MCP server (required by bee)
 	if cfg.MCP.APIKey == "" {
