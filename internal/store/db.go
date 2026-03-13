@@ -53,8 +53,6 @@ var migrations = []migration{
 		session_key     TEXT NOT NULL,
 		platform        TEXT NOT NULL,
 		content         TEXT NOT NULL,
-		execution_id    TEXT NOT NULL DEFAULT '',
-		session_id      TEXT NOT NULL DEFAULT '',
 		status          TEXT NOT NULL DEFAULT 'received',
 		merged_into     TEXT NOT NULL DEFAULT '',
 		platform_msg_id TEXT NOT NULL DEFAULT '',
@@ -130,16 +128,6 @@ var migrations = []migration{
 		updated_at   INTEGER NOT NULL,
 		PRIMARY KEY (session_key, agent_id)
 	)`,
-	},
-	{
-		version: 13,
-		name:    "20260312_drop_platform_messages_execution_id",
-		sql:     `ALTER TABLE platform_messages DROP COLUMN execution_id`,
-	},
-	{
-		version: 14,
-		name:    "20260312_drop_platform_messages_session_id",
-		sql:     `ALTER TABLE platform_messages DROP COLUMN session_id`,
 	},
 }
 
