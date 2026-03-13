@@ -17,6 +17,7 @@ type Config struct {
 	Feishu       FeishuConfig        `yaml:"feishu"`
 	DingTalk     DingTalkConfig      `yaml:"dingtalk"`
 	MessageQueue MessageQueueConfig  `yaml:"message_queue"`
+	MCP          MCPConfig           `yaml:"mcp"`
 }
 
 type FeishuConfig struct {
@@ -29,6 +30,10 @@ type DingTalkConfig struct {
 	Enabled      bool   `yaml:"enabled"`
 	ClientID     string `yaml:"client_id"`
 	ClientSecret string `yaml:"client_secret"`
+}
+
+type MCPConfig struct {
+	APIKey string `yaml:"api_key"`
 }
 
 

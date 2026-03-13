@@ -26,3 +26,6 @@ dingtalk:
   client_id: ""
   client_secret: ""
 
+mcp:
+  api_key: ""  # Set a secret key to enable the MCP server endpoint
+
