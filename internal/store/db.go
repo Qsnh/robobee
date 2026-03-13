@@ -52,19 +52,20 @@ var migrations = []migration{
 		version: 3,
 		name:    "20260311000003_create_table_platform_messages",
 		sql: `CREATE TABLE IF NOT EXISTS platform_messages (
-		id           TEXT PRIMARY KEY,
-		session_key  TEXT NOT NULL,
-		platform     TEXT NOT NULL,
-		content      TEXT NOT NULL,
-		worker_id    TEXT NOT NULL DEFAULT '',
-		execution_id TEXT NOT NULL DEFAULT '',
-		session_id   TEXT NOT NULL DEFAULT '',
-		status       TEXT NOT NULL DEFAULT 'received',
-		merged_into  TEXT NOT NULL DEFAULT '',
+		id              TEXT PRIMARY KEY,
+		session_key     TEXT NOT NULL,
+		platform        TEXT NOT NULL,
+		content         TEXT NOT NULL,
+		execution_id    TEXT NOT NULL DEFAULT '',
+		session_id      TEXT NOT NULL DEFAULT '',
+		status          TEXT NOT NULL DEFAULT 'received',
+		merged_into     TEXT NOT NULL DEFAULT '',
 		platform_msg_id TEXT NOT NULL DEFAULT '',
-		raw          TEXT NOT NULL DEFAULT '',
+		raw             TEXT NOT NULL DEFAULT '',
 		received_at     INTEGER NOT NULL,
-		processed_at    INTEGER
+		processed_at    INTEGER,
+		created_at      INTEGER NOT NULL,
+		updated_at      INTEGER NOT NULL
 	)`,
 	},
 	{
@@ -90,7 +91,7 @@ var migrations = []migration{
 	{
 		version: 8,
 		name:    "20260311000008_create_index_platform_messages_worker_status",
-		sql:     `CREATE INDEX IF NOT EXISTS idx_platform_messages_worker_status ON platform_messages(session_key, worker_id, status)`,
+		sql:     `DROP INDEX IF EXISTS idx_platform_messages_worker_status`,
 	},
 	{
 		version: 9,
