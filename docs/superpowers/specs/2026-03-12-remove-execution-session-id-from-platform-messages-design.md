@@ -59,13 +59,17 @@ Delete the `Session` struct. Its only use is as the return type of `GetSession`.
 - `TestMessageStore_GetSession_AfterExecution`
 - `TestMessageStore_GetSession_AfterClear`
 - `TestMessageStore_GetSession_FirstMessageNoExecution`
+- `TestMessageStore_SetExecution`
 - `TestMessageStore_SetMessageExecution_OnlyWhenBeeProcessed`
-- Any test cases that call `SetExecution` on `MessageStore`
 
 **`internal/dispatcher/dispatcher_test.go`** — delete:
 
 - `mockMsgStore` struct and its `SetMessageExecution` method
 - Update `New()` calls to remove the `msgStore` argument
+
+### 6. `cmd/server/main.go`
+
+Remove `msgStore` from the `dispatcher.New(...)` call (line 91). The `msgStore` local variable itself stays — it is still consumed by `bee.NewFeeder` and `msgingest.New`.
 
 ## What Is Not Changed
 
