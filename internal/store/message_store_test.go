@@ -491,3 +491,38 @@ func TestMessageStore_InsertClearSentinel_UnaffectedByDedupSchema(t *testing.T) 
 		t.Fatalf("InsertClearSentinel B: %v", err)
 	}
 }
+
+func TestMessageStore_SetMessageExecution_OnlyWhenBeeProcessed(t *testing.T) {
+	db, err := InitDB(t.TempDir() + "/test.db")
+	if err != nil {
+		t.Fatalf("InitDB: %v", err)
+	}
+	defer db.Close()
+
+	ms := NewMessageStore(db)
+	ctx := context.Background()
+
+	db.Exec(`INSERT INTO platform_messages
+        (id, session_key, platform, content, raw, platform_msg_id, status, received_at)
+        VALUES ('m1', 'sk', 'feishu', 'hi', '', '', 'bee_processed', 1)`)
+
+	err = ms.SetMessageExecution(ctx, "m1", "exec-1", "sess-1")
+	if err != nil {
+		t.Fatalf("SetMessageExecution: %v", err)
+	}
+
+	var execID string
+	db.QueryRow(`SELECT execution_id FROM platform_messages WHERE id='m1'`).Scan(&execID)
+	if execID != "exec-1" {
+		t.Errorf("want exec-1, got %q", execID)
+	}
+
+	// Reset to 'received': subsequent call should be a no-op (conditional update)
+	db.Exec(`UPDATE platform_messages SET status='received' WHERE id='m1'`)
+	_ = ms.SetMessageExecution(ctx, "m1", "exec-2", "sess-2")
+
+	db.QueryRow(`SELECT execution_id FROM platform_messages WHERE id='m1'`).Scan(&execID)
+	if execID != "exec-1" {
+		t.Errorf("conditional update should be no-op for non-bee_processed row; got %q", execID)
+	}
+}

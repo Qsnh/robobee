@@ -195,6 +195,18 @@ func (s *MessageStore) SetExecution(ctx context.Context, msgID, executionID, ses
 	return err
 }
 
+// SetMessageExecution writes execution_id and session_id back to a platform_messages row,
+// but only when status = 'bee_processed'. This is a no-op if the Feeder rolled the row back.
+func (s *MessageStore) SetMessageExecution(ctx context.Context, messageID, executionID, sessionID string) error {
+	_, err := s.db.ExecContext(ctx,
+		`UPDATE platform_messages
+         SET execution_id = ?, session_id = ?
+         WHERE id = ? AND status = 'bee_processed'`,
+		executionID, sessionID, messageID,
+	)
+	return err
+}
+
 // InsertClearSentinel inserts a 'clear' sentinel row to mark the session as reset.
 func (s *MessageStore) InsertClearSentinel(ctx context.Context, id, sessionKey, plt string) error {
 	_, err := s.db.ExecContext(ctx,
