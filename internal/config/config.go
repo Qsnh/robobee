@@ -18,6 +18,21 @@ type Config struct {
 	DingTalk     DingTalkConfig      `yaml:"dingtalk"`
 	MessageQueue MessageQueueConfig  `yaml:"message_queue"`
 	MCP          MCPConfig           `yaml:"mcp"`
+	Bee          BeeConfig           `yaml:"bee"`
+}
+
+type BeeConfig struct {
+	Name    string      `yaml:"name"`
+	WorkDir string      `yaml:"work_dir"`
+	Persona string      `yaml:"persona"`
+	Feeder  FeederConfig `yaml:"feeder"`
+}
+
+type FeederConfig struct {
+	Interval           time.Duration `yaml:"interval"`
+	BatchSize          int           `yaml:"batch_size"`
+	Timeout            time.Duration `yaml:"timeout"`
+	QueueWarnThreshold int           `yaml:"queue_warn_threshold"`
 }
 
 type FeishuConfig struct {
@@ -88,6 +103,28 @@ func applyDefaults(cfg *Config) error {
 	}
 	if cfg.MessageQueue.DebounceWindow == 0 {
 		cfg.MessageQueue.DebounceWindow = 3 * time.Second
+	}
+	if cfg.Bee.Name == "" {
+		cfg.Bee.Name = "bee"
+	}
+	if cfg.Bee.WorkDir == "" {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return fmt.Errorf("get home dir: %w", err)
+		}
+		cfg.Bee.WorkDir = filepath.Join(home, ".robobee", "bee")
+	}
+	if cfg.Bee.Feeder.Interval == 0 {
+		cfg.Bee.Feeder.Interval = 10 * time.Second
+	}
+	if cfg.Bee.Feeder.BatchSize == 0 {
+		cfg.Bee.Feeder.BatchSize = 10
+	}
+	if cfg.Bee.Feeder.Timeout == 0 {
+		cfg.Bee.Feeder.Timeout = 5 * time.Minute
+	}
+	if cfg.Bee.Feeder.QueueWarnThreshold == 0 {
+		cfg.Bee.Feeder.QueueWarnThreshold = 100
 	}
 	return nil
 }
