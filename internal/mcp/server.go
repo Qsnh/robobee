@@ -8,6 +8,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"github.com/robobee/core/internal/platform"
 	"github.com/robobee/core/internal/store"
 	"github.com/robobee/core/internal/worker"
 )
@@ -47,21 +48,31 @@ func okResponse(id any, result any) rpcResponse {
 
 // MCPServer manages SSE sessions and dispatches JSON-RPC tool calls.
 type MCPServer struct {
-	workerStore *store.WorkerStore
-	manager     *worker.Manager
-	taskStore   *store.TaskStore
+	workerStore  *store.WorkerStore
+	manager      *worker.Manager
+	taskStore    *store.TaskStore
+	messageStore *store.MessageStore
+	senders      map[string]platform.PlatformSenderAdapter
 
 	mu       sync.Mutex
 	sessions map[string]chan rpcResponse // session_id -> response channel
 }
 
 // NewServer creates an MCPServer. Call RegisterRoutes to attach it to a Gin router group.
-func NewServer(ws *store.WorkerStore, mgr *worker.Manager, ts *store.TaskStore) *MCPServer {
+func NewServer(
+	ws *store.WorkerStore,
+	mgr *worker.Manager,
+	ts *store.TaskStore,
+	ms *store.MessageStore,
+	senders map[string]platform.PlatformSenderAdapter,
+) *MCPServer {
 	return &MCPServer{
-		workerStore: ws,
-		manager:     mgr,
-		taskStore:   ts,
-		sessions:    make(map[string]chan rpcResponse),
+		workerStore:  ws,
+		manager:      mgr,
+		taskStore:    ts,
+		messageStore: ms,
+		senders:      senders,
+		sessions:     make(map[string]chan rpcResponse),
 	}
 }
 

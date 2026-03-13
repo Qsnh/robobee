@@ -1,18 +1,22 @@
 package mcp_test
 
 import (
+	"context"
+	"database/sql"
 	"encoding/json"
+	"sync"
 	"testing"
 
 	_ "github.com/mattn/go-sqlite3"
 	"github.com/robobee/core/internal/config"
 	"github.com/robobee/core/internal/mcp"
 	"github.com/robobee/core/internal/model"
+	"github.com/robobee/core/internal/platform"
 	"github.com/robobee/core/internal/store"
 	"github.com/robobee/core/internal/worker"
 )
 
-func setupMCPServer(t *testing.T) *mcp.MCPServer {
+func setupMCPServerWithMessaging(t *testing.T) *mcp.MCPServer {
 	t.Helper()
 	db, err := store.InitDB(t.TempDir() + "/test.db")
 	if err != nil {
@@ -23,12 +27,14 @@ func setupMCPServer(t *testing.T) *mcp.MCPServer {
 	ws := store.NewWorkerStore(db)
 	es := store.NewExecutionStore(db)
 	ts := store.NewTaskStore(db)
+	ms := store.NewMessageStore(db)
 	mgr := worker.NewManager(
 		config.WorkersConfig{BaseDir: t.TempDir()},
 		config.RuntimeConfig{ClaudeCode: config.RuntimeEntry{Binary: "claude"}},
 		ws, es,
 	)
-	return mcp.NewServer(ws, mgr, ts)
+	senders := make(map[string]platform.PlatformSenderAdapter)
+	return mcp.NewServer(ws, mgr, ts, ms, senders)
 }
 
 func mustMarshal(t *testing.T, v any) json.RawMessage {
@@ -41,7 +47,7 @@ func mustMarshal(t *testing.T, v any) json.RawMessage {
 }
 
 func TestCallTool_ListWorkers_Empty(t *testing.T) {
-	s := setupMCPServer(t)
+	s := setupMCPServerWithMessaging(t)
 	result, err := s.CallTool("list_workers", mustMarshal(t, map[string]any{}))
 	if err != nil {
 		t.Fatalf("CallTool: %v", err)
@@ -56,7 +62,7 @@ func TestCallTool_ListWorkers_Empty(t *testing.T) {
 }
 
 func TestCallTool_CreateWorker(t *testing.T) {
-	s := setupMCPServer(t)
+	s := setupMCPServerWithMessaging(t)
 	result, err := s.CallTool("create_worker", mustMarshal(t, map[string]any{
 		"name":        "TestBot",
 		"description": "A test bot",
@@ -78,7 +84,7 @@ func TestCallTool_CreateWorker(t *testing.T) {
 }
 
 func TestCallTool_GetWorker(t *testing.T) {
-	s := setupMCPServer(t)
+	s := setupMCPServerWithMessaging(t)
 	created, _ := s.CallTool("create_worker", mustMarshal(t, map[string]any{"name": "Bot"}))
 	w := created.(model.Worker)
 
@@ -96,7 +102,7 @@ func TestCallTool_GetWorker(t *testing.T) {
 }
 
 func TestCallTool_GetWorker_NotFound(t *testing.T) {
-	s := setupMCPServer(t)
+	s := setupMCPServerWithMessaging(t)
 	_, err := s.CallTool("get_worker", mustMarshal(t, map[string]any{"worker_id": "nonexistent"}))
 	if err == nil {
 		t.Error("expected error for missing worker")
@@ -104,7 +110,7 @@ func TestCallTool_GetWorker_NotFound(t *testing.T) {
 }
 
 func TestCallTool_UpdateWorker(t *testing.T) {
-	s := setupMCPServer(t)
+	s := setupMCPServerWithMessaging(t)
 	created, _ := s.CallTool("create_worker", mustMarshal(t, map[string]any{"name": "OldName"}))
 	w := created.(model.Worker)
 
@@ -129,7 +135,7 @@ func TestCallTool_UpdateWorker(t *testing.T) {
 }
 
 func TestCallTool_DeleteWorker(t *testing.T) {
-	s := setupMCPServer(t)
+	s := setupMCPServerWithMessaging(t)
 	created, _ := s.CallTool("create_worker", mustMarshal(t, map[string]any{"name": "Bot"}))
 	w := created.(model.Worker)
 
@@ -145,17 +151,10 @@ func TestCallTool_DeleteWorker(t *testing.T) {
 }
 
 func TestCallTool_UnknownTool(t *testing.T) {
-	s := setupMCPServer(t)
+	s := setupMCPServerWithMessaging(t)
 	_, err := s.CallTool("nonexistent_tool", mustMarshal(t, map[string]any{}))
 	if err == nil {
 		t.Error("expected error for unknown tool")
-	}
-}
-
-func TestToolSchemas_Count(t *testing.T) {
-	schemas := mcp.ToolSchemas()
-	if len(schemas) != 8 {
-		t.Errorf("expected 8 tool schemas, got %d", len(schemas))
 	}
 }
 
@@ -173,7 +172,7 @@ func TestToolSchemas_IncludesTaskTools(t *testing.T) {
 }
 
 func TestListWorkers_ReturnsEmptySlice_NotNull(t *testing.T) {
-	s := setupMCPServer(t)
+	s := setupMCPServerWithMessaging(t)
 	result, err := s.CallTool("list_workers", mustMarshal(t, map[string]any{}))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -181,5 +180,254 @@ func TestListWorkers_ReturnsEmptySlice_NotNull(t *testing.T) {
 	workers := result.([]model.Worker)
 	if workers == nil {
 		t.Error("expected non-nil slice, got nil")
+	}
+}
+
+type mockSender struct {
+	sent []platform.OutboundMessage
+	mu   sync.Mutex
+}
+
+func (s *mockSender) Send(_ context.Context, msg platform.OutboundMessage) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.sent = append(s.sent, msg)
+	return nil
+}
+
+func setupMCPServerWithSender(t *testing.T, senderID string, sender platform.PlatformSenderAdapter) (*mcp.MCPServer, *sql.DB) {
+	t.Helper()
+	db, err := store.InitDB(t.TempDir() + "/test.db")
+	if err != nil {
+		t.Fatalf("InitDB: %v", err)
+	}
+	t.Cleanup(func() { db.Close() })
+
+	ws := store.NewWorkerStore(db)
+	es := store.NewExecutionStore(db)
+	ts := store.NewTaskStore(db)
+	ms := store.NewMessageStore(db)
+	mgr := worker.NewManager(
+		config.WorkersConfig{BaseDir: t.TempDir()},
+		config.RuntimeConfig{ClaudeCode: config.RuntimeEntry{Binary: "claude"}},
+		ws, es,
+	)
+	senders := map[string]platform.PlatformSenderAdapter{senderID: sender}
+	return mcp.NewServer(ws, mgr, ts, ms, senders), db
+}
+
+// --- mark_task_success ---
+
+func TestCallTool_MarkTaskSuccess(t *testing.T) {
+	s, db := setupMCPServerWithSender(t, "feishu", &mockSender{})
+	ctx := context.Background()
+	ms := store.NewMessageStore(db)
+	ms.Create(ctx, "msg-fake", "feishu:c1:u1", "feishu", "hi", `{}`, "", 0) //nolint
+
+	workerResult, _ := s.CallTool("create_worker", mustMarshal(t, map[string]any{"name": "W"}))
+	w := workerResult.(model.Worker)
+
+	taskResult, err := s.CallTool("create_task", mustMarshal(t, map[string]any{
+		"message_id":  "msg-fake",
+		"worker_id":   w.ID,
+		"instruction": "do something",
+		"type":        "immediate",
+	}))
+	if err != nil {
+		t.Fatalf("create_task: %v", err)
+	}
+	taskMap := taskResult.(map[string]string)
+	taskID := taskMap["task_id"]
+
+	result, err := s.CallTool("mark_task_success", mustMarshal(t, map[string]any{
+		"task_id": taskID,
+	}))
+	if err != nil {
+		t.Fatalf("mark_task_success: %v", err)
+	}
+	m := result.(map[string]string)
+	if m["status"] != "completed" {
+		t.Errorf("expected status=completed, got %q", m["status"])
+	}
+	if m["task_id"] != taskID {
+		t.Errorf("expected task_id=%s, got %q", taskID, m["task_id"])
+	}
+}
+
+func TestCallTool_MarkTaskSuccess_MissingTaskID(t *testing.T) {
+	s := setupMCPServerWithMessaging(t)
+	_, err := s.CallTool("mark_task_success", mustMarshal(t, map[string]any{}))
+	if err == nil {
+		t.Error("expected error for missing task_id")
+	}
+}
+
+// --- mark_task_failed ---
+
+func TestCallTool_MarkTaskFailed(t *testing.T) {
+	s, db := setupMCPServerWithSender(t, "feishu", &mockSender{})
+	ctx := context.Background()
+	ms := store.NewMessageStore(db)
+	ms.Create(ctx, "msg-fake2", "feishu:c1:u1", "feishu", "hi", `{}`, "", 0) //nolint
+
+	workerResult, _ := s.CallTool("create_worker", mustMarshal(t, map[string]any{"name": "W2"}))
+	w := workerResult.(model.Worker)
+	taskResult, err := s.CallTool("create_task", mustMarshal(t, map[string]any{
+		"message_id":  "msg-fake2",
+		"worker_id":   w.ID,
+		"instruction": "do something",
+		"type":        "immediate",
+	}))
+	if err != nil {
+		t.Fatalf("create_task: %v", err)
+	}
+	taskMap := taskResult.(map[string]string)
+	taskID := taskMap["task_id"]
+
+	result, err := s.CallTool("mark_task_failed", mustMarshal(t, map[string]any{
+		"task_id": taskID,
+		"reason":  "network timeout",
+	}))
+	if err != nil {
+		t.Fatalf("mark_task_failed: %v", err)
+	}
+	m := result.(map[string]string)
+	if m["status"] != "failed" {
+		t.Errorf("expected status=failed, got %q", m["status"])
+	}
+	if m["reason"] != "network timeout" {
+		t.Errorf("expected reason=network timeout, got %q", m["reason"])
+	}
+}
+
+func TestCallTool_MarkTaskFailed_NoReason(t *testing.T) {
+	s, db := setupMCPServerWithSender(t, "feishu", &mockSender{})
+	ctx := context.Background()
+	ms := store.NewMessageStore(db)
+	ms.Create(ctx, "msg-fake3", "feishu:c1:u1", "feishu", "hi", `{}`, "", 0) //nolint
+
+	workerResult, _ := s.CallTool("create_worker", mustMarshal(t, map[string]any{"name": "W3"}))
+	w := workerResult.(model.Worker)
+	taskResult, err := s.CallTool("create_task", mustMarshal(t, map[string]any{
+		"message_id":  "msg-fake3",
+		"worker_id":   w.ID,
+		"instruction": "x",
+		"type":        "immediate",
+	}))
+	if err != nil {
+		t.Fatalf("create_task (no reason setup): %v", err)
+	}
+	taskMap := taskResult.(map[string]string)
+
+	result, err := s.CallTool("mark_task_failed", mustMarshal(t, map[string]any{
+		"task_id": taskMap["task_id"],
+	}))
+	if err != nil {
+		t.Fatalf("mark_task_failed (no reason): %v", err)
+	}
+	m := result.(map[string]string)
+	if m["status"] != "failed" {
+		t.Errorf("expected status=failed, got %q", m["status"])
+	}
+}
+
+// --- send_message ---
+
+func TestCallTool_SendMessage_CallsSender(t *testing.T) {
+	mock := &mockSender{}
+	s, db := setupMCPServerWithSender(t, "feishu", mock)
+	ctx := context.Background()
+
+	ms := store.NewMessageStore(db)
+	ms.Create(ctx, "msg-send-1", "feishu:chat1:userA", "feishu", "hello", `{"event":{"message":{"chat_id":"c1","chat_type":"p2p","message_id":"m1","message_type":"text","content":"{\"text\":\"hi\"}"}}}`, "", 0) //nolint
+
+	result, err := s.CallTool("send_message", mustMarshal(t, map[string]any{
+		"message_id": "msg-send-1",
+		"content":    "Task done!",
+	}))
+	if err != nil {
+		t.Fatalf("send_message: %v", err)
+	}
+	m := result.(map[string]string)
+	if m["status"] != "sent" {
+		t.Errorf("expected status=sent, got %q", m["status"])
+	}
+
+	mock.mu.Lock()
+	defer mock.mu.Unlock()
+	if len(mock.sent) == 0 {
+		t.Fatal("expected sender.Send to be called")
+	}
+	if mock.sent[0].Content != "Task done!" {
+		t.Errorf("expected content 'Task done!', got %q", mock.sent[0].Content)
+	}
+}
+
+func TestCallTool_SendMessage_MissingMessageID(t *testing.T) {
+	s := setupMCPServerWithMessaging(t)
+	_, err := s.CallTool("send_message", mustMarshal(t, map[string]any{
+		"content": "hello",
+	}))
+	if err == nil {
+		t.Error("expected error for missing message_id")
+	}
+}
+
+func TestCallTool_SendMessage_MissingContent(t *testing.T) {
+	s := setupMCPServerWithMessaging(t)
+	_, err := s.CallTool("send_message", mustMarshal(t, map[string]any{
+		"message_id": "msg-x",
+	}))
+	if err == nil {
+		t.Error("expected error for missing content")
+	}
+}
+
+func TestCallTool_SendMessage_UnknownPlatform(t *testing.T) {
+	s, db := setupMCPServerWithSender(t, "feishu", &mockSender{})
+	ctx := context.Background()
+
+	ms := store.NewMessageStore(db)
+	ms.Create(ctx, "msg-unk", "dingtalk:c1:u1", "dingtalk", "hi", `{}`, "", 0) //nolint
+
+	_, err := s.CallTool("send_message", mustMarshal(t, map[string]any{
+		"message_id": "msg-unk",
+		"content":    "hello",
+	}))
+	if err == nil {
+		t.Error("expected error for unregistered platform sender")
+	}
+}
+
+func TestCallTool_SendMessage_MessageNotFound(t *testing.T) {
+	s := setupMCPServerWithMessaging(t)
+	_, err := s.CallTool("send_message", mustMarshal(t, map[string]any{
+		"message_id": "nonexistent-msg",
+		"content":    "hello",
+	}))
+	if err == nil {
+		t.Error("expected error for nonexistent message_id")
+	}
+}
+
+// --- Schema count ---
+
+func TestToolSchemas_Count_AfterNewTools(t *testing.T) {
+	schemas := mcp.ToolSchemas()
+	if len(schemas) != 11 {
+		t.Errorf("expected 11 tool schemas (8 existing + 3 new), got %d", len(schemas))
+	}
+}
+
+func TestToolSchemas_IncludesNewTools(t *testing.T) {
+	schemas := mcp.ToolSchemas()
+	names := make(map[string]bool)
+	for _, s := range schemas {
+		names[s.Name] = true
+	}
+	for _, want := range []string{"mark_task_success", "mark_task_failed", "send_message"} {
+		if !names[want] {
+			t.Errorf("missing tool schema: %s", want)
+		}
 	}
 }

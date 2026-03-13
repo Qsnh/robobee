@@ -8,6 +8,7 @@ import (
 
 	"github.com/robfig/cron/v3"
 	"github.com/robobee/core/internal/model"
+	"github.com/robobee/core/internal/platform"
 )
 
 // toolSchema represents a single MCP tool definition returned by tools/list.
@@ -17,7 +18,7 @@ type toolSchema struct {
 	InputSchema map[string]any `json:"inputSchema"`
 }
 
-// ToolSchemas returns the JSON Schema definitions for all 5 worker CRUD tools.
+// ToolSchemas returns the JSON Schema definitions for all MCP tools.
 // Exported so tests can verify the count and structure.
 func ToolSchemas() []toolSchema {
 	return toolSchemas()
@@ -124,6 +125,41 @@ func toolSchemas() []toolSchema {
 				},
 			},
 		},
+		{
+			Name:        "mark_task_success",
+			Description: "Mark a task as successfully completed",
+			InputSchema: map[string]any{
+				"type":     "object",
+				"required": []string{"task_id"},
+				"properties": map[string]any{
+					"task_id": map[string]string{"type": "string", "description": "Task ID to mark as completed"},
+				},
+			},
+		},
+		{
+			Name:        "mark_task_failed",
+			Description: "Mark a task as failed",
+			InputSchema: map[string]any{
+				"type":     "object",
+				"required": []string{"task_id"},
+				"properties": map[string]any{
+					"task_id": map[string]string{"type": "string", "description": "Task ID to mark as failed"},
+					"reason":  map[string]string{"type": "string", "description": "Optional failure reason"},
+				},
+			},
+		},
+		{
+			Name:        "send_message",
+			Description: "Send a message to the user on the originating platform. Use message_id from the task metadata to identify the reply target.",
+			InputSchema: map[string]any{
+				"type":     "object",
+				"required": []string{"message_id", "content"},
+				"properties": map[string]any{
+					"message_id": map[string]string{"type": "string", "description": "ID of the originating platform message (resolves platform and reply context)"},
+					"content":    map[string]string{"type": "string", "description": "Message content to send"},
+				},
+			},
+		},
 	}
 }
 
@@ -151,6 +187,12 @@ func (s *MCPServer) callTool(name string, args json.RawMessage) (any, error) {
 		return s.toolListTasks(args)
 	case "cancel_task":
 		return s.toolCancelTask(args)
+	case "mark_task_success":
+		return s.toolMarkTaskSuccess(args)
+	case "mark_task_failed":
+		return s.toolMarkTaskFailed(args)
+	case "send_message":
+		return s.toolSendMessage(args)
 	default:
 		return nil, fmt.Errorf("unknown tool: %s", name)
 	}
@@ -372,4 +414,76 @@ func (s *MCPServer) toolCancelTask(args json.RawMessage) (any, error) {
 		return nil, fmt.Errorf("cancel task: %w", err)
 	}
 	return map[string]string{"task_id": params.TaskID, "status": "cancelled"}, nil
+}
+
+func (s *MCPServer) toolMarkTaskSuccess(args json.RawMessage) (any, error) {
+	var params struct {
+		TaskID string `json:"task_id"`
+	}
+	if err := json.Unmarshal(args, &params); err != nil {
+		return nil, fmt.Errorf("invalid args: %w", err)
+	}
+	if params.TaskID == "" {
+		return nil, fmt.Errorf("task_id is required")
+	}
+	if err := s.taskStore.UpdateStatus(context.Background(), params.TaskID, model.TaskStatusCompleted); err != nil {
+		return nil, fmt.Errorf("mark task success: %w", err)
+	}
+	return map[string]string{"task_id": params.TaskID, "status": "completed"}, nil
+}
+
+func (s *MCPServer) toolMarkTaskFailed(args json.RawMessage) (any, error) {
+	var params struct {
+		TaskID string `json:"task_id"`
+		Reason string `json:"reason"`
+	}
+	if err := json.Unmarshal(args, &params); err != nil {
+		return nil, fmt.Errorf("invalid args: %w", err)
+	}
+	if params.TaskID == "" {
+		return nil, fmt.Errorf("task_id is required")
+	}
+	if err := s.taskStore.UpdateStatus(context.Background(), params.TaskID, model.TaskStatusFailed); err != nil {
+		return nil, fmt.Errorf("mark task failed: %w", err)
+	}
+	return map[string]string{"task_id": params.TaskID, "status": "failed", "reason": params.Reason}, nil
+}
+
+func (s *MCPServer) toolSendMessage(args json.RawMessage) (any, error) {
+	var params struct {
+		MessageID string `json:"message_id"`
+		Content   string `json:"content"`
+	}
+	if err := json.Unmarshal(args, &params); err != nil {
+		return nil, fmt.Errorf("invalid args: %w", err)
+	}
+	if params.MessageID == "" {
+		return nil, fmt.Errorf("message_id is required")
+	}
+	if params.Content == "" {
+		return nil, fmt.Errorf("content is required")
+	}
+
+	stored, err := s.messageStore.GetByID(context.Background(), params.MessageID)
+	if err != nil {
+		return nil, fmt.Errorf("get message: %w", err)
+	}
+
+	sender, ok := s.senders[stored.Platform]
+	if !ok {
+		return nil, fmt.Errorf("no sender registered for platform %q", stored.Platform)
+	}
+
+	outbound := platform.OutboundMessage{
+		ReplyTo: platform.InboundMessage{
+			Platform:   stored.Platform,
+			SessionKey: stored.SessionKey,
+			Raw:        stored.Raw,
+		},
+		Content: params.Content,
+	}
+	if err := sender.Send(context.Background(), outbound); err != nil {
+		return nil, fmt.Errorf("send message: %w", err)
+	}
+	return map[string]string{"status": "sent"}, nil
 }
