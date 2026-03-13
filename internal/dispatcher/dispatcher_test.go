@@ -3,29 +3,38 @@ package dispatcher_test
 import (
 	"context"
 	"fmt"
+	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/robobee/core/internal/dispatcher"
 	"github.com/robobee/core/internal/model"
-	"github.com/robobee/core/internal/msgsender"
 	"github.com/robobee/core/internal/platform"
 )
 
 // --- Mocks ---
 
 type mockExecManager struct {
-	execResult model.WorkerExecution
-	getResult  model.WorkerExecution
-	// resumedWithSessionID records the sessionID passed to ExecuteWorkerWithSession
+	mu                   sync.Mutex
+	execResult           model.WorkerExecution
+	getResult            model.WorkerExecution
 	resumedWithSessionID string
+	executedInstructions []string
 }
 
-func (m *mockExecManager) ExecuteWorker(_ context.Context, _, _ string) (model.WorkerExecution, error) {
+func (m *mockExecManager) ExecuteWorker(_ context.Context, _, instruction string) (model.WorkerExecution, error) {
+	m.mu.Lock()
+	m.executedInstructions = append(m.executedInstructions, instruction)
+	m.mu.Unlock()
 	return m.execResult, nil
 }
-func (m *mockExecManager) ExecuteWorkerWithSession(_ context.Context, _, _, sessionID string) (model.WorkerExecution, error) {
+func (m *mockExecManager) ExecuteWorkerWithSession(_ context.Context, _, instruction, sessionID string) (model.WorkerExecution, error) {
+	m.mu.Lock()
 	m.resumedWithSessionID = sessionID
+	m.executedInstructions = append(m.executedInstructions, instruction)
+	m.mu.Unlock()
 	return m.execResult, nil
 }
 func (m *mockExecManager) GetExecution(_ string) (model.WorkerExecution, error) {
@@ -37,8 +46,9 @@ type mockTaskStore struct{}
 func (s *mockTaskStore) SetExecution(_ context.Context, _, _, _ string) error { return nil }
 
 type mockSessionStore struct {
-	data    map[string]string // "sessionKey|agentID" -> sessionID
-	cleared []string          // sessionKeys cleared
+	mu      sync.Mutex
+	data    map[string]string
+	cleared []string
 }
 
 func newMockSessionStore() *mockSessionStore {
@@ -46,13 +56,19 @@ func newMockSessionStore() *mockSessionStore {
 }
 
 func (s *mockSessionStore) GetSessionContext(_ context.Context, sessionKey, agentID string) (string, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	return s.data[sessionKey+"|"+agentID], nil
 }
 func (s *mockSessionStore) UpsertSessionContext(_ context.Context, sessionKey, agentID, sessionID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	s.data[sessionKey+"|"+agentID] = sessionID
 	return nil
 }
 func (s *mockSessionStore) ClearSessionContexts(_ context.Context, sessionKey string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	s.cleared = append(s.cleared, sessionKey)
 	return nil
 }
@@ -63,33 +79,36 @@ func newDispatcher(mgr dispatcher.ExecutionManager, ss dispatcher.SessionStore) 
 	return d, in
 }
 
-func dispatchTask(taskType, sessionKey, workerID, instruction string) dispatcher.DispatchTask {
+func immediateTask(sessionKey, workerID, instruction string) dispatcher.DispatchTask {
 	return dispatcher.DispatchTask{
 		TaskID:      "task-1",
 		WorkerID:    workerID,
 		SessionKey:  sessionKey,
 		Instruction: instruction,
 		ReplyTo:     platform.InboundMessage{Platform: "test", SessionKey: sessionKey},
-		TaskType:    taskType,
+		TaskType:    "immediate",
 		MessageID:   "msg-1",
 	}
 }
 
-func collectEvents(out <-chan msgsender.SenderEvent, n int, timeout time.Duration) []msgsender.SenderEvent {
-	var events []msgsender.SenderEvent
-	deadline := time.After(timeout)
-	for len(events) < n {
-		select {
-		case evt := <-out:
-			events = append(events, evt)
-		case <-deadline:
-			return events
+// waitForExecCount waits until mgr.executedInstructions reaches n or timeout.
+func waitForExecCount(mgr *mockExecManager, n int, timeout time.Duration) bool {
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		mgr.mu.Lock()
+		count := len(mgr.executedInstructions)
+		mgr.mu.Unlock()
+		if count >= n {
+			return true
 		}
+		time.Sleep(10 * time.Millisecond)
 	}
-	return events
+	return false
 }
 
-func TestDispatcher_ImmediateTask_EmitsACKThenResult(t *testing.T) {
+// --- Tests ---
+
+func TestDispatcher_ImmediateTask_CallsExecuteWorker(t *testing.T) {
 	mgr := &mockExecManager{
 		execResult: model.WorkerExecution{ID: "exec-1", SessionID: "sess-1"},
 		getResult:  model.WorkerExecution{ID: "exec-1", Status: model.ExecStatusCompleted, Result: "done!"},
@@ -100,24 +119,83 @@ func TestDispatcher_ImmediateTask_EmitsACKThenResult(t *testing.T) {
 	defer cancel()
 	go d.Run(ctx)
 
-	in <- dispatchTask("immediate", "s1", "w1", "check weather")
+	in <- immediateTask("s1", "w1", "check weather")
 
-	events := collectEvents(d.Out(), 2, 2*time.Second)
-	if len(events) < 2 {
-		t.Fatalf("expected ACK+Result, got %d events", len(events))
-	}
-	if events[0].Type != msgsender.SenderEventACK {
-		t.Errorf("first event should be ACK, got %v", events[0].Type)
-	}
-	if events[1].Type != msgsender.SenderEventResult {
-		t.Errorf("second event should be Result, got %v", events[1].Type)
-	}
-	if events[1].Content != "done!" {
-		t.Errorf("unexpected result content: %q", events[1].Content)
+	if !waitForExecCount(mgr, 1, 2*time.Second) {
+		t.Fatal("ExecuteWorker was not called within timeout")
 	}
 }
 
-func TestDispatcher_ClearTask_EmitsClearResultAndClearsSession(t *testing.T) {
+func TestDispatcher_InstructionInjection(t *testing.T) {
+	mgr := &mockExecManager{
+		execResult: model.WorkerExecution{ID: "exec-1", SessionID: "sess-1"},
+		getResult:  model.WorkerExecution{ID: "exec-1", Status: model.ExecStatusCompleted},
+	}
+	d, in := newDispatcher(mgr, newMockSessionStore())
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go d.Run(ctx)
+
+	task := dispatcher.DispatchTask{
+		TaskID:      "task-abc",
+		WorkerID:    "w1",
+		SessionKey:  "s1",
+		Instruction: "do the thing",
+		ReplyTo:     platform.InboundMessage{Platform: "test", SessionKey: "s1"},
+		TaskType:    "immediate",
+		MessageID:   "msg-xyz",
+	}
+	in <- task
+
+	if !waitForExecCount(mgr, 1, 2*time.Second) {
+		t.Fatal("ExecuteWorker was not called within timeout")
+	}
+
+	mgr.mu.Lock()
+	instr := mgr.executedInstructions[0]
+	mgr.mu.Unlock()
+
+	if !strings.Contains(instr, "task_id=task-abc") {
+		t.Errorf("instruction missing task_id injection, got: %q", instr)
+	}
+	if !strings.Contains(instr, "message_id=msg-xyz") {
+		t.Errorf("instruction missing message_id injection, got: %q", instr)
+	}
+	if !strings.Contains(instr, "do the thing") {
+		t.Errorf("instruction missing original text, got: %q", instr)
+	}
+}
+
+func TestDispatcher_InstructionInjection_SkippedWhenNoTaskID(t *testing.T) {
+	mgr := &mockExecManager{
+		execResult: model.WorkerExecution{ID: "exec-1"},
+		getResult:  model.WorkerExecution{ID: "exec-1", Status: model.ExecStatusCompleted},
+	}
+	d, in := newDispatcher(mgr, newMockSessionStore())
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go d.Run(ctx)
+
+	// Clear command has no TaskID
+	in <- dispatcher.DispatchTask{
+		TaskType:   "clear",
+		SessionKey: "s1",
+		ReplyTo:    platform.InboundMessage{Platform: "test", SessionKey: "s1"},
+	}
+
+	// Just verify no panic; clear doesn't call ExecuteWorker
+	time.Sleep(50 * time.Millisecond)
+	mgr.mu.Lock()
+	count := len(mgr.executedInstructions)
+	mgr.mu.Unlock()
+	if count != 0 {
+		t.Errorf("expected 0 executions for clear command, got %d", count)
+	}
+}
+
+func TestDispatcher_ClearTask_ClearsSessionContexts(t *testing.T) {
 	ss := newMockSessionStore()
 	d, in := newDispatcher(&mockExecManager{}, ss)
 
@@ -131,16 +209,20 @@ func TestDispatcher_ClearTask_EmitsClearResultAndClearsSession(t *testing.T) {
 		ReplyTo:    platform.InboundMessage{Platform: "test", SessionKey: "s1"},
 	}
 
-	events := collectEvents(d.Out(), 1, 500*time.Millisecond)
-	if len(events) != 1 || events[0].Type != msgsender.SenderEventResult {
-		t.Fatalf("expected 1 result for clear, got %v", events)
-	}
-	if events[0].Content != "✅ 上下文已重置" {
-		t.Errorf("unexpected clear content: %q", events[0].Content)
+	// Wait for async clear
+	deadline := time.Now().Add(500 * time.Millisecond)
+	for time.Now().Before(deadline) {
+		ss.mu.Lock()
+		cleared := len(ss.cleared)
+		ss.mu.Unlock()
+		if cleared > 0 {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
 
-	// Give dispatcher goroutine time to call ClearSessionContexts
-	time.Sleep(50 * time.Millisecond)
+	ss.mu.Lock()
+	defer ss.mu.Unlock()
 	if len(ss.cleared) == 0 || ss.cleared[0] != "s1" {
 		t.Errorf("expected ClearSessionContexts called with s1, got %v", ss.cleared)
 	}
@@ -160,17 +242,23 @@ func TestDispatcher_ImmediateTask_ResumesWhenSessionExists(t *testing.T) {
 	defer cancel()
 	go d.Run(ctx)
 
-	in <- dispatchTask("immediate", "s1", "w1", "follow-up")
-	collectEvents(d.Out(), 2, 2*time.Second)
+	in <- immediateTask("s1", "w1", "follow-up")
 
-	if mgr.resumedWithSessionID != "prior-session-id" {
-		t.Errorf("expected ExecuteWorkerWithSession called with prior-session-id, got %q", mgr.resumedWithSessionID)
+	if !waitForExecCount(mgr, 1, 2*time.Second) {
+		t.Fatal("ExecuteWorkerWithSession was not called within timeout")
+	}
+
+	mgr.mu.Lock()
+	resumed := mgr.resumedWithSessionID
+	mgr.mu.Unlock()
+
+	if resumed != "prior-session-id" {
+		t.Errorf("expected ExecuteWorkerWithSession with prior-session-id, got %q", resumed)
 	}
 }
 
 func TestDispatcher_ImmediateTask_FreshWhenNoSession(t *testing.T) {
-	ss := newMockSessionStore() // no prior session
-
+	ss := newMockSessionStore()
 	mgr := &mockExecManager{
 		execResult: model.WorkerExecution{ID: "exec-1", SessionID: "new-session"},
 		getResult:  model.WorkerExecution{ID: "exec-1", Status: model.ExecStatusCompleted, Result: "fresh!"},
@@ -181,11 +269,18 @@ func TestDispatcher_ImmediateTask_FreshWhenNoSession(t *testing.T) {
 	defer cancel()
 	go d.Run(ctx)
 
-	in <- dispatchTask("immediate", "s1", "w1", "first message")
-	collectEvents(d.Out(), 2, 2*time.Second)
+	in <- immediateTask("s1", "w1", "first message")
 
-	if mgr.resumedWithSessionID != "" {
-		t.Errorf("expected ExecuteWorker (not ExecuteWorkerWithSession) for fresh start, but resume was called with %q", mgr.resumedWithSessionID)
+	if !waitForExecCount(mgr, 1, 2*time.Second) {
+		t.Fatal("ExecuteWorker was not called within timeout")
+	}
+
+	mgr.mu.Lock()
+	resumed := mgr.resumedWithSessionID
+	mgr.mu.Unlock()
+
+	if resumed != "" {
+		t.Errorf("expected fresh start (no resume), but ExecuteWorkerWithSession was called with %q", resumed)
 	}
 }
 
@@ -193,36 +288,45 @@ func TestDispatcher_ImmediateTask_ResumeFails_FallsBackToFresh(t *testing.T) {
 	ss := newMockSessionStore()
 	ss.data["s1|w1"] = "broken-session-id"
 
-	// Manager returns error on ExecuteWorkerWithSession, succeeds on ExecuteWorker
 	mgr := &fallbackExecManager{
 		freshResult: model.WorkerExecution{ID: "exec-fresh", SessionID: "new-session"},
 		getResult:   model.WorkerExecution{ID: "exec-fresh", Status: model.ExecStatusCompleted, Result: "fallback-ok"},
 	}
-	d, in := newDispatcher(mgr, ss)
+
+	in := make(chan dispatcher.DispatchTask, 4)
+	d := dispatcher.New(mgr, &mockTaskStore{}, ss, in)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	go d.Run(ctx)
 
-	in <- dispatchTask("immediate", "s1", "w1", "message after broken session")
-	events := collectEvents(d.Out(), 2, 2*time.Second)
+	in <- immediateTask("s1", "w1", "message after broken session")
 
-	// Should still get ACK + result
-	if len(events) < 2 {
-		t.Fatalf("expected ACK+Result even after resume failure, got %d events", len(events))
-	}
-	resultEvents := 0
-	for _, e := range events {
-		if e.Type == msgsender.SenderEventResult && e.Content == "fallback-ok" {
-			resultEvents++
+	// Wait for execution to complete — mgr.execCount reaches 1 (fresh execute)
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if atomic.LoadInt64(&mgr.freshCount) >= 1 {
+			break
 		}
+		time.Sleep(10 * time.Millisecond)
 	}
-	if resultEvents == 0 {
-		t.Error("expected fallback result 'fallback-ok' in events")
+	if atomic.LoadInt64(&mgr.freshCount) < 1 {
+		t.Fatal("fallback ExecuteWorker was never called")
 	}
 
 	// Stale session should be cleared
-	time.Sleep(50 * time.Millisecond)
+	deadline = time.Now().Add(500 * time.Millisecond)
+	for time.Now().Before(deadline) {
+		ss.mu.Lock()
+		cleared := len(ss.cleared)
+		ss.mu.Unlock()
+		if cleared > 0 {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	ss.mu.Lock()
+	defer ss.mu.Unlock()
 	if len(ss.cleared) == 0 {
 		t.Error("expected ClearSessionContexts called after resume failure")
 	}
@@ -237,52 +341,54 @@ func TestDispatcher_TwoTasks_SameSession_Serialized(t *testing.T) {
 	defer cancel()
 	go d.Run(ctx)
 
-	t1 := dispatchTask("immediate", "s1", "w1", "first")
+	t1 := immediateTask("s1", "w1", "first")
 	t1.TaskID = "task-1"
-	t2 := dispatchTask("immediate", "s1", "w1", "second")
+	t2 := immediateTask("s1", "w1", "second")
 	t2.TaskID = "task-2"
 
 	in <- t1
 	in <- t2
 
-	// Both should get ACK
-	events := collectEvents(d.Out(), 2, 500*time.Millisecond)
-	ackCount := 0
-	for _, e := range events {
-		if e.Type == msgsender.SenderEventACK {
-			ackCount++
-		}
-	}
-	if ackCount != 2 {
-		t.Errorf("expected 2 ACKs, got %d", ackCount)
+	// Wait for first task to start blocking
+	time.Sleep(50 * time.Millisecond)
+	if atomic.LoadInt64(&mgr.started) != 1 {
+		t.Fatalf("expected 1 execution started, got %d", atomic.LoadInt64(&mgr.started))
 	}
 
 	// Unblock first execution
 	close(blocker)
 
-	// Should get 2 results
-	results := collectEvents(d.Out(), 2, 2*time.Second)
-	resultCount := 0
-	for _, e := range results {
-		if e.Type == msgsender.SenderEventResult {
-			resultCount++
+	// Wait for both to complete
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if atomic.LoadInt64(&mgr.completed) >= 2 {
+			break
 		}
+		time.Sleep(10 * time.Millisecond)
 	}
-	if resultCount != 2 {
-		t.Errorf("expected 2 results, got %d", resultCount)
+	if atomic.LoadInt64(&mgr.completed) < 2 {
+		t.Errorf("expected 2 executions completed, got %d", atomic.LoadInt64(&mgr.completed))
 	}
 }
 
+// --- Helper managers ---
+
 type blockingExecManager struct {
-	blocker <-chan struct{}
+	blocker   <-chan struct{}
+	started   int64
+	completed int64
 }
 
 func (m *blockingExecManager) ExecuteWorker(_ context.Context, _, _ string) (model.WorkerExecution, error) {
+	atomic.AddInt64(&m.started, 1)
 	<-m.blocker
+	atomic.AddInt64(&m.completed, 1)
 	return model.WorkerExecution{ID: "exec-x"}, nil
 }
 func (m *blockingExecManager) ExecuteWorkerWithSession(_ context.Context, _, _, _ string) (model.WorkerExecution, error) {
+	atomic.AddInt64(&m.started, 1)
 	<-m.blocker
+	atomic.AddInt64(&m.completed, 1)
 	return model.WorkerExecution{ID: "exec-x"}, nil
 }
 func (m *blockingExecManager) GetExecution(_ string) (model.WorkerExecution, error) {
@@ -292,9 +398,11 @@ func (m *blockingExecManager) GetExecution(_ string) (model.WorkerExecution, err
 type fallbackExecManager struct {
 	freshResult model.WorkerExecution
 	getResult   model.WorkerExecution
+	freshCount  int64
 }
 
 func (m *fallbackExecManager) ExecuteWorker(_ context.Context, _, _ string) (model.WorkerExecution, error) {
+	atomic.AddInt64(&m.freshCount, 1)
 	return m.freshResult, nil
 }
 func (m *fallbackExecManager) ExecuteWorkerWithSession(_ context.Context, _, _, _ string) (model.WorkerExecution, error) {
