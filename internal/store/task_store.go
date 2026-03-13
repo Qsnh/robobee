@@ -1,0 +1,272 @@
+package store
+
+import (
+	"context"
+	"database/sql"
+	"fmt"
+	"strings"
+	"time"
+
+	"github.com/google/uuid"
+	"github.com/robobee/core/internal/model"
+)
+
+// TaskStore handles persistence for bee tasks.
+type TaskStore struct {
+	db *sql.DB
+}
+
+// NewTaskStore creates a TaskStore backed by db.
+func NewTaskStore(db *sql.DB) *TaskStore {
+	return &TaskStore{db: db}
+}
+
+// Create inserts a new task and returns its generated ID.
+func (s *TaskStore) Create(ctx context.Context, t model.Task) (string, error) {
+	id := uuid.New().String()
+	now := time.Now().UnixMilli()
+	_, err := s.db.ExecContext(ctx, `
+        INSERT INTO tasks
+            (id, message_id, worker_id, instruction, type, status,
+             scheduled_at, cron_expr, next_run_at, reply_session_key, execution_id,
+             created_at, updated_at)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		id, t.MessageID, t.WorkerID, t.Instruction, t.Type, t.Status,
+		t.ScheduledAt, t.CronExpr, t.NextRunAt, t.ReplySessionKey, "",
+		now, now,
+	)
+	if err != nil {
+		return "", fmt.Errorf("create task: %w", err)
+	}
+	return id, nil
+}
+
+// GetByID fetches a single task by ID.
+func (s *TaskStore) GetByID(ctx context.Context, id string) (model.Task, error) {
+	row := s.db.QueryRowContext(ctx, `
+        SELECT id, message_id, worker_id, instruction, type, status,
+               scheduled_at, cron_expr, next_run_at, reply_session_key, execution_id,
+               created_at, updated_at
+        FROM tasks WHERE id = ?`, id)
+	return scanTask(row)
+}
+
+// ListByMessageID returns tasks for a given message, optionally filtered by status.
+func (s *TaskStore) ListByMessageID(ctx context.Context, messageID, status string) ([]model.Task, error) {
+	q := `SELECT id, message_id, worker_id, instruction, type, status,
+                 scheduled_at, cron_expr, next_run_at, reply_session_key, execution_id,
+                 created_at, updated_at
+          FROM tasks WHERE message_id = ?`
+	args := []any{messageID}
+	if status != "" {
+		q += " AND status = ?"
+		args = append(args, status)
+	}
+	rows, err := s.db.QueryContext(ctx, q, args...)
+	if err != nil {
+		return nil, fmt.Errorf("list tasks: %w", err)
+	}
+	defer rows.Close()
+	return scanTasks(rows)
+}
+
+// ClaimDueTasks atomically selects all pending tasks that are due at or before nowMS,
+// marks them running (immediate/countdown) or advances their next_run_at (scheduled),
+// and returns them joined with their source platform_message data.
+func (s *TaskStore) ClaimDueTasks(ctx context.Context, nowMS int64) ([]model.ClaimedTask, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, fmt.Errorf("begin tx: %w", err)
+	}
+	defer tx.Rollback() //nolint:errcheck
+
+	rows, err := tx.QueryContext(ctx, `
+        SELECT t.id, t.message_id, t.worker_id, t.instruction, t.type, t.status,
+               t.scheduled_at, t.cron_expr, t.next_run_at, t.reply_session_key,
+               t.execution_id, t.created_at, t.updated_at,
+               pm.session_key, pm.platform
+        FROM tasks t
+        JOIN platform_messages pm ON pm.id = t.message_id
+        WHERE t.status = 'pending'
+          AND (
+            t.type = 'immediate'
+            OR (t.type = 'countdown' AND t.scheduled_at <= ?)
+            OR (t.type = 'scheduled' AND (t.next_run_at IS NULL OR t.next_run_at <= ?))
+          )`, nowMS, nowMS)
+	if err != nil {
+		return nil, fmt.Errorf("query due tasks: %w", err)
+	}
+
+	var claimed []model.ClaimedTask
+	for rows.Next() {
+		var ct model.ClaimedTask
+		var scheduledAt, nextRunAt sql.NullInt64
+		err := rows.Scan(
+			&ct.ID, &ct.MessageID, &ct.WorkerID, &ct.Instruction,
+			&ct.Type, &ct.Status, &scheduledAt, &ct.CronExpr,
+			&nextRunAt, &ct.ReplySessionKey, &ct.ExecutionID,
+			&ct.CreatedAt, &ct.UpdatedAt,
+			&ct.MessageSessionKey, &ct.MessagePlatform,
+		)
+		if err != nil {
+			rows.Close()
+			return nil, fmt.Errorf("scan task: %w", err)
+		}
+		if scheduledAt.Valid {
+			v := scheduledAt.Int64
+			ct.ScheduledAt = &v
+		}
+		if nextRunAt.Valid {
+			v := nextRunAt.Int64
+			ct.NextRunAt = &v
+		}
+		claimed = append(claimed, ct)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("rows error: %w", err)
+	}
+
+	now := time.Now().UnixMilli()
+	for i, ct := range claimed {
+		if ct.Type == model.TaskTypeScheduled {
+			_, err = tx.ExecContext(ctx,
+				`UPDATE tasks SET next_run_at = ?, updated_at = ? WHERE id = ?`,
+				nowMS+24*60*60*1000, now, ct.ID) // +24h sentinel; overwritten by scheduler
+		} else {
+			_, err = tx.ExecContext(ctx,
+				`UPDATE tasks SET status = 'running', updated_at = ? WHERE id = ?`,
+				now, ct.ID)
+			claimed[i].Status = model.TaskStatusRunning
+		}
+		if err != nil {
+			return nil, fmt.Errorf("update task %s: %w", ct.ID, err)
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		return nil, fmt.Errorf("commit: %w", err)
+	}
+	return claimed, nil
+}
+
+// SetExecution writes execution_id and status back to a task.
+func (s *TaskStore) SetExecution(ctx context.Context, taskID, executionID, status string) error {
+	_, err := s.db.ExecContext(ctx,
+		`UPDATE tasks SET execution_id = ?, status = ?, updated_at = ? WHERE id = ?`,
+		executionID, status, time.Now().UnixMilli(), taskID)
+	return err
+}
+
+// CancelTask sets a task status to cancelled.
+func (s *TaskStore) CancelTask(ctx context.Context, taskID string) error {
+	_, err := s.db.ExecContext(ctx,
+		`UPDATE tasks SET status = 'cancelled', updated_at = ? WHERE id = ?`,
+		time.Now().UnixMilli(), taskID)
+	return err
+}
+
+// CancelByWorkerID cancels all pending/running tasks for a given worker.
+func (s *TaskStore) CancelByWorkerID(ctx context.Context, workerID string) error {
+	_, err := s.db.ExecContext(ctx,
+		`UPDATE tasks SET status = 'cancelled', updated_at = ?
+         WHERE worker_id = ? AND status IN ('pending','running')`,
+		time.Now().UnixMilli(), workerID)
+	return err
+}
+
+// DeletePendingByMessageIDs removes pending tasks belonging to the given message IDs.
+func (s *TaskStore) DeletePendingByMessageIDs(ctx context.Context, messageIDs []string) error {
+	if len(messageIDs) == 0 {
+		return nil
+	}
+	placeholders := strings.Repeat("?,", len(messageIDs))
+	placeholders = placeholders[:len(placeholders)-1]
+	args := make([]any, len(messageIDs))
+	for i, id := range messageIDs {
+		args[i] = id
+	}
+	_, err := s.db.ExecContext(ctx,
+		`DELETE FROM tasks WHERE message_id IN (`+placeholders+`) AND status = 'pending'`,
+		args...)
+	return err
+}
+
+// ResetRunningToPending resets all running tasks back to pending.
+func (s *TaskStore) ResetRunningToPending(ctx context.Context) (int64, error) {
+	now := time.Now().UnixMilli()
+	// Scheduled tasks: clear next_run_at so scheduler recomputes via cron
+	_, err := s.db.ExecContext(ctx,
+		`UPDATE tasks SET status = 'pending', next_run_at = NULL, updated_at = ?
+         WHERE status = 'running' AND type = 'scheduled'`, now)
+	if err != nil {
+		return 0, err
+	}
+	// Immediate / countdown tasks: just reset status
+	res, err := s.db.ExecContext(ctx,
+		`UPDATE tasks SET status = 'pending', updated_at = ?
+         WHERE status = 'running' AND type IN ('immediate','countdown')`, now)
+	if err != nil {
+		return 0, err
+	}
+	return res.RowsAffected()
+}
+
+// UpdateNextRunAt sets next_run_at for a scheduled task after dispatch.
+func (s *TaskStore) UpdateNextRunAt(ctx context.Context, taskID string, nextRunAt int64) error {
+	_, err := s.db.ExecContext(ctx,
+		`UPDATE tasks SET next_run_at = ?, updated_at = ? WHERE id = ?`,
+		nextRunAt, time.Now().UnixMilli(), taskID)
+	return err
+}
+
+// scanTask scans a single task row.
+func scanTask(row *sql.Row) (model.Task, error) {
+	var t model.Task
+	var scheduledAt, nextRunAt sql.NullInt64
+	err := row.Scan(
+		&t.ID, &t.MessageID, &t.WorkerID, &t.Instruction,
+		&t.Type, &t.Status, &scheduledAt, &t.CronExpr,
+		&nextRunAt, &t.ReplySessionKey, &t.ExecutionID,
+		&t.CreatedAt, &t.UpdatedAt,
+	)
+	if err != nil {
+		return model.Task{}, fmt.Errorf("scan task: %w", err)
+	}
+	if scheduledAt.Valid {
+		v := scheduledAt.Int64
+		t.ScheduledAt = &v
+	}
+	if nextRunAt.Valid {
+		v := nextRunAt.Int64
+		t.NextRunAt = &v
+	}
+	return t, nil
+}
+
+func scanTasks(rows *sql.Rows) ([]model.Task, error) {
+	var result []model.Task
+	for rows.Next() {
+		var t model.Task
+		var scheduledAt, nextRunAt sql.NullInt64
+		err := rows.Scan(
+			&t.ID, &t.MessageID, &t.WorkerID, &t.Instruction,
+			&t.Type, &t.Status, &scheduledAt, &t.CronExpr,
+			&nextRunAt, &t.ReplySessionKey, &t.ExecutionID,
+			&t.CreatedAt, &t.UpdatedAt,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("scan task row: %w", err)
+		}
+		if scheduledAt.Valid {
+			v := scheduledAt.Int64
+			t.ScheduledAt = &v
+		}
+		if nextRunAt.Valid {
+			v := nextRunAt.Int64
+			t.NextRunAt = &v
+		}
+		result = append(result, t)
+	}
+	return result, rows.Err()
+}
