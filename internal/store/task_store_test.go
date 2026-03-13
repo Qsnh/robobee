@@ -174,6 +174,61 @@ func TestTaskStore_ListByMessageID(t *testing.T) {
 	}
 }
 
+func TestTaskStore_UpdateStatus_SetsCompleted(t *testing.T) {
+	ts, cleanup := newTaskStoreForTest(t)
+	defer cleanup()
+
+	now := time.Now().UnixMilli()
+	id, err := ts.Create(context.Background(), model.Task{
+		MessageID: "m1", WorkerID: "w1", Instruction: "go",
+		Type: model.TaskTypeImmediate, Status: model.TaskStatusRunning,
+		CreatedAt: now, UpdatedAt: now,
+	})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	if err := ts.UpdateStatus(context.Background(), id, model.TaskStatusCompleted); err != nil {
+		t.Fatalf("UpdateStatus: %v", err)
+	}
+
+	got, err := ts.GetByID(context.Background(), id)
+	if err != nil {
+		t.Fatalf("GetByID: %v", err)
+	}
+	if got.Status != model.TaskStatusCompleted {
+		t.Errorf("status: want completed, got %q", got.Status)
+	}
+	// execution_id must be untouched (different from SetExecution)
+	if got.ExecutionID != "" {
+		t.Errorf("execution_id should be empty, got %q", got.ExecutionID)
+	}
+}
+
+func TestTaskStore_UpdateStatus_SetsFailed(t *testing.T) {
+	ts, cleanup := newTaskStoreForTest(t)
+	defer cleanup()
+
+	now := time.Now().UnixMilli()
+	id, err := ts.Create(context.Background(), model.Task{
+		MessageID: "m1", WorkerID: "w1", Instruction: "go",
+		Type: model.TaskTypeImmediate, Status: model.TaskStatusRunning,
+		CreatedAt: now, UpdatedAt: now,
+	})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	if err := ts.UpdateStatus(context.Background(), id, model.TaskStatusFailed); err != nil {
+		t.Fatalf("UpdateStatus: %v", err)
+	}
+
+	got, _ := ts.GetByID(context.Background(), id)
+	if got.Status != model.TaskStatusFailed {
+		t.Errorf("status: want failed, got %q", got.Status)
+	}
+}
+
 func TestTaskStore_ResetRunningToPending(t *testing.T) {
 	ts, cleanup := newTaskStoreForTest(t)
 	defer cleanup()
