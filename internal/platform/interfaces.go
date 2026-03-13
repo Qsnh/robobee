@@ -44,7 +44,6 @@ type Platform interface {
 type Session struct {
 	Key             string
 	Platform        string
-	WorkerID        string
 	SessionID       string
 	LastExecutionID string
 }
