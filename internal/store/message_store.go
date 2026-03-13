@@ -271,3 +271,22 @@ func (s *MessageStore) CreateBatch(ctx context.Context, msgs []BatchMsg) (int64,
 	}
 	return result.RowsAffected()
 }
+
+// StoredMessage is the subset of platform_messages fields needed by platform senders.
+type StoredMessage struct {
+	Platform   string
+	SessionKey string
+	Raw        string
+}
+
+// GetByID fetches the platform, session_key, and raw fields for a single message.
+func (s *MessageStore) GetByID(ctx context.Context, id string) (StoredMessage, error) {
+	var m StoredMessage
+	err := s.db.QueryRowContext(ctx,
+		`SELECT platform, session_key, raw FROM platform_messages WHERE id = ?`, id,
+	).Scan(&m.Platform, &m.SessionKey, &m.Raw)
+	if err != nil {
+		return StoredMessage{}, fmt.Errorf("get message %s: %w", id, err)
+	}
+	return m, nil
+}

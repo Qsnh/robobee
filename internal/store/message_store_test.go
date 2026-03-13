@@ -311,6 +311,37 @@ func TestMessageStore_Create_ReceivedAt_FallbackToServerTime(t *testing.T) {
 	}
 }
 
+func TestMessageStore_GetByID_ReturnsStoredFields(t *testing.T) {
+	s := setupMessageStore(t)
+	ctx := context.Background()
+
+	s.Create(ctx, "msg-1", "feishu:chat1:userA", "feishu", "hello", `{"raw":"data"}`, "", 0) //nolint
+
+	got, err := s.GetByID(ctx, "msg-1")
+	if err != nil {
+		t.Fatalf("GetByID: %v", err)
+	}
+	if got.Platform != "feishu" {
+		t.Errorf("Platform: want feishu, got %q", got.Platform)
+	}
+	if got.SessionKey != "feishu:chat1:userA" {
+		t.Errorf("SessionKey: want feishu:chat1:userA, got %q", got.SessionKey)
+	}
+	if got.Raw != `{"raw":"data"}` {
+		t.Errorf("Raw: want %q, got %q", `{"raw":"data"}`, got.Raw)
+	}
+}
+
+func TestMessageStore_GetByID_NotFound(t *testing.T) {
+	s := setupMessageStore(t)
+	ctx := context.Background()
+
+	_, err := s.GetByID(ctx, "nonexistent")
+	if err == nil {
+		t.Error("expected error for missing message, got nil")
+	}
+}
+
 func TestMessageStore_InsertClearSentinel_UnaffectedByDedupSchema(t *testing.T) {
 	s := setupMessageStore(t)
 	ctx := context.Background()
