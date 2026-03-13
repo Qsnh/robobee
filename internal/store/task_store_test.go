@@ -229,6 +229,170 @@ func TestTaskStore_UpdateStatus_SetsFailed(t *testing.T) {
 	}
 }
 
+func newTaskStoreWithTwoSessions(t *testing.T) (*TaskStore, func()) {
+	t.Helper()
+	db, err := InitDB(t.TempDir() + "/test.db")
+	if err != nil {
+		t.Fatalf("InitDB: %v", err)
+	}
+	db.Exec(`INSERT INTO workers (id,name,work_dir,status,created_at,updated_at) VALUES ('w1','W','/','idle',1,1)`)
+	db.Exec(`INSERT INTO platform_messages
+		(id, session_key, platform, content, raw, platform_msg_id, received_at, created_at, updated_at)
+		VALUES ('m1','session-A','feishu','hi','','',1,1,1)`)
+	db.Exec(`INSERT INTO platform_messages
+		(id, session_key, platform, content, raw, platform_msg_id, received_at, created_at, updated_at)
+		VALUES ('m2','session-B','feishu','bye','','',1,1,1)`)
+	return NewTaskStore(db), func() { db.Close() }
+}
+
+func TestTaskStore_ListBySessionKey(t *testing.T) {
+	ts, cleanup := newTaskStoreWithTwoSessions(t)
+	defer cleanup()
+	ctx := context.Background()
+	now := time.Now().UnixMilli()
+
+	// Create tasks in session-A: one pending, one running
+	ts.Create(ctx, model.Task{
+		MessageID: "m1", WorkerID: "w1", Instruction: "a",
+		Type: model.TaskTypeImmediate, Status: model.TaskStatusPending,
+		CreatedAt: now, UpdatedAt: now,
+	})
+	ts.Create(ctx, model.Task{
+		MessageID: "m1", WorkerID: "w1", Instruction: "b",
+		Type: model.TaskTypeImmediate, Status: model.TaskStatusRunning,
+		CreatedAt: now, UpdatedAt: now,
+	})
+	// Create task in session-B
+	ts.Create(ctx, model.Task{
+		MessageID: "m2", WorkerID: "w1", Instruction: "c",
+		Type: model.TaskTypeImmediate, Status: model.TaskStatusPending,
+		CreatedAt: now, UpdatedAt: now,
+	})
+
+	// List all tasks for session-A
+	tasks, err := ts.ListBySessionKey(ctx, "session-A", "")
+	if err != nil {
+		t.Fatalf("ListBySessionKey: %v", err)
+	}
+	if len(tasks) != 2 {
+		t.Errorf("expected 2 tasks for session-A, got %d", len(tasks))
+	}
+
+	// List only pending tasks for session-A
+	tasks, err = ts.ListBySessionKey(ctx, "session-A", "pending")
+	if err != nil {
+		t.Fatalf("ListBySessionKey (pending): %v", err)
+	}
+	if len(tasks) != 1 {
+		t.Errorf("expected 1 pending task for session-A, got %d", len(tasks))
+	}
+
+	// List with comma-separated status
+	tasks, err = ts.ListBySessionKey(ctx, "session-A", "pending,running")
+	if err != nil {
+		t.Fatalf("ListBySessionKey (pending,running): %v", err)
+	}
+	if len(tasks) != 2 {
+		t.Errorf("expected 2 tasks for session-A with pending,running, got %d", len(tasks))
+	}
+
+	// List for session-B
+	tasks, err = ts.ListBySessionKey(ctx, "session-B", "")
+	if err != nil {
+		t.Fatalf("ListBySessionKey session-B: %v", err)
+	}
+	if len(tasks) != 1 {
+		t.Errorf("expected 1 task for session-B, got %d", len(tasks))
+	}
+}
+
+func TestTaskStore_ListByMessageID_CommaSeparatedStatus(t *testing.T) {
+	ts, cleanup := newTaskStoreForTest(t)
+	defer cleanup()
+	ctx := context.Background()
+	now := time.Now().UnixMilli()
+
+	ts.Create(ctx, model.Task{
+		MessageID: "m1", WorkerID: "w1", Instruction: "a",
+		Type: model.TaskTypeImmediate, Status: model.TaskStatusPending,
+		CreatedAt: now, UpdatedAt: now,
+	})
+	ts.Create(ctx, model.Task{
+		MessageID: "m1", WorkerID: "w1", Instruction: "b",
+		Type: model.TaskTypeImmediate, Status: model.TaskStatusRunning,
+		CreatedAt: now, UpdatedAt: now,
+	})
+	ts.Create(ctx, model.Task{
+		MessageID: "m1", WorkerID: "w1", Instruction: "c",
+		Type: model.TaskTypeImmediate, Status: model.TaskStatusCompleted,
+		CreatedAt: now, UpdatedAt: now,
+	})
+
+	tasks, err := ts.ListByMessageID(ctx, "m1", "pending,running")
+	if err != nil {
+		t.Fatalf("ListByMessageID: %v", err)
+	}
+	if len(tasks) != 2 {
+		t.Errorf("expected 2 tasks (pending+running), got %d", len(tasks))
+	}
+}
+
+func TestTaskStore_CancelBySessionKey(t *testing.T) {
+	ts, cleanup := newTaskStoreWithTwoSessions(t)
+	defer cleanup()
+	ctx := context.Background()
+	now := time.Now().UnixMilli()
+
+	// Create tasks in session-A: pending + running + completed
+	ts.Create(ctx, model.Task{
+		MessageID: "m1", WorkerID: "w1", Instruction: "a",
+		Type: model.TaskTypeImmediate, Status: model.TaskStatusPending,
+		CreatedAt: now, UpdatedAt: now,
+	})
+	ts.Create(ctx, model.Task{
+		MessageID: "m1", WorkerID: "w1", Instruction: "b",
+		Type: model.TaskTypeImmediate, Status: model.TaskStatusRunning,
+		CreatedAt: now, UpdatedAt: now,
+	})
+	ts.Create(ctx, model.Task{
+		MessageID: "m1", WorkerID: "w1", Instruction: "c",
+		Type: model.TaskTypeImmediate, Status: model.TaskStatusCompleted,
+		CreatedAt: now, UpdatedAt: now,
+	})
+	// Task in session-B (should not be affected)
+	ts.Create(ctx, model.Task{
+		MessageID: "m2", WorkerID: "w1", Instruction: "d",
+		Type: model.TaskTypeImmediate, Status: model.TaskStatusPending,
+		CreatedAt: now, UpdatedAt: now,
+	})
+
+	n, err := ts.CancelBySessionKey(ctx, "session-A")
+	if err != nil {
+		t.Fatalf("CancelBySessionKey: %v", err)
+	}
+	if n != 2 {
+		t.Errorf("expected 2 cancelled (pending+running), got %d", n)
+	}
+
+	// Verify: session-A completed task untouched
+	tasksA, _ := ts.ListBySessionKey(ctx, "session-A", "completed")
+	if len(tasksA) != 1 {
+		t.Errorf("completed task should be untouched, got %d", len(tasksA))
+	}
+
+	// Verify: session-A cancelled tasks
+	cancelledA, _ := ts.ListBySessionKey(ctx, "session-A", "cancelled")
+	if len(cancelledA) != 2 {
+		t.Errorf("expected 2 cancelled tasks, got %d", len(cancelledA))
+	}
+
+	// Verify: session-B unaffected
+	tasksB, _ := ts.ListBySessionKey(ctx, "session-B", "pending")
+	if len(tasksB) != 1 {
+		t.Errorf("session-B task should be unaffected, got %d", len(tasksB))
+	}
+}
+
 func TestTaskStore_ResetRunningToPending(t *testing.T) {
 	ts, cleanup := newTaskStoreForTest(t)
 	defer cleanup()

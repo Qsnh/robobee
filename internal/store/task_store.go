@@ -51,20 +51,53 @@ func (s *TaskStore) GetByID(ctx context.Context, id string) (model.Task, error) 
 	return scanTask(row)
 }
 
+// appendStatusFilter appends an IN clause for comma-separated status values.
+// If status is empty, nothing is appended.
+func appendStatusFilter(q string, args []any, status string) (string, []any) {
+	if status == "" {
+		return q, args
+	}
+	statuses := strings.Split(status, ",")
+	placeholders := strings.Repeat("?,", len(statuses))
+	placeholders = placeholders[:len(placeholders)-1]
+	q += " AND t.status IN (" + placeholders + ")"
+	for _, st := range statuses {
+		args = append(args, strings.TrimSpace(st))
+	}
+	return q, args
+}
+
 // ListByMessageID returns tasks for a given message, optionally filtered by status.
 func (s *TaskStore) ListByMessageID(ctx context.Context, messageID, status string) ([]model.Task, error) {
-	q := `SELECT id, message_id, worker_id, instruction, type, status,
-                 scheduled_at, cron_expr, next_run_at, reply_session_key, execution_id,
-                 created_at, updated_at
-          FROM tasks WHERE message_id = ?`
+	q := `SELECT t.id, t.message_id, t.worker_id, t.instruction, t.type, t.status,
+	             t.scheduled_at, t.cron_expr, t.next_run_at, t.reply_session_key, t.execution_id,
+	             t.created_at, t.updated_at
+	      FROM tasks t WHERE t.message_id = ?`
 	args := []any{messageID}
-	if status != "" {
-		q += " AND status = ?"
-		args = append(args, status)
-	}
+	q, args = appendStatusFilter(q, args, status)
 	rows, err := s.db.QueryContext(ctx, q, args...)
 	if err != nil {
 		return nil, fmt.Errorf("list tasks: %w", err)
+	}
+	defer rows.Close()
+	return scanTasks(rows)
+}
+
+// ListBySessionKey returns tasks whose originating message belongs to the given session.
+// status supports comma-separated values (e.g., "pending,running"); empty means all.
+func (s *TaskStore) ListBySessionKey(ctx context.Context, sessionKey, status string) ([]model.Task, error) {
+	q := `SELECT t.id, t.message_id, t.worker_id, t.instruction, t.type, t.status,
+	             t.scheduled_at, t.cron_expr, t.next_run_at, t.reply_session_key, t.execution_id,
+	             t.created_at, t.updated_at
+	      FROM tasks t
+	      JOIN platform_messages pm ON t.message_id = pm.id
+	      WHERE pm.session_key = ?`
+	args := []any{sessionKey}
+	q, args = appendStatusFilter(q, args, status)
+	q += " ORDER BY t.created_at DESC"
+	rows, err := s.db.QueryContext(ctx, q, args...)
+	if err != nil {
+		return nil, fmt.Errorf("list tasks by session key: %w", err)
 	}
 	defer rows.Close()
 	return scanTasks(rows)
@@ -182,6 +215,20 @@ func (s *TaskStore) CancelByWorkerID(ctx context.Context, workerID string) error
          WHERE worker_id = ? AND status IN ('pending','running')`,
 		time.Now().UnixMilli(), workerID)
 	return err
+}
+
+// CancelBySessionKey cancels all pending/running tasks for a given session.
+// Returns the number of tasks cancelled.
+func (s *TaskStore) CancelBySessionKey(ctx context.Context, sessionKey string) (int64, error) {
+	res, err := s.db.ExecContext(ctx,
+		`UPDATE tasks SET status = 'cancelled', updated_at = ?
+		 WHERE message_id IN (SELECT id FROM platform_messages WHERE session_key = ?)
+		   AND status IN ('pending', 'running')`,
+		time.Now().UnixMilli(), sessionKey)
+	if err != nil {
+		return 0, fmt.Errorf("cancel tasks by session key: %w", err)
+	}
+	return res.RowsAffected()
 }
 
 // DeletePendingByMessageIDs removes pending tasks belonging to the given message IDs.
