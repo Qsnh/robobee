@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 	"sync"
 
 	"github.com/gin-gonic/gin"
@@ -103,7 +104,8 @@ func (s *MCPServer) handleSSE(c *gin.Context) {
 	c.Header("Connection", "keep-alive")
 
 	// Send endpoint event so client knows where to POST
-	endpointURL := fmt.Sprintf("/mcp/messages?session_id=%s", sessionID)
+	apiKey := c.Query("api_key")
+	endpointURL := fmt.Sprintf("/mcp/messages?session_id=%s&api_key=%s", sessionID, url.QueryEscape(apiKey))
 	fmt.Fprintf(c.Writer, "event: endpoint\ndata: %s\n\n", endpointURL)
 	c.Writer.Flush()
 
