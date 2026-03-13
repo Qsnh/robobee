@@ -131,6 +131,16 @@ var migrations = []migration{
 		PRIMARY KEY (session_key, agent_id)
 	)`,
 	},
+	{
+		version: 13,
+		name:    "20260312_drop_platform_messages_execution_id",
+		sql:     `ALTER TABLE platform_messages DROP COLUMN execution_id`,
+	},
+	{
+		version: 14,
+		name:    "20260312_drop_platform_messages_session_id",
+		sql:     `ALTER TABLE platform_messages DROP COLUMN session_id`,
+	},
 }
 
 func InitDB(dbPath string) (*sql.DB, error) {
