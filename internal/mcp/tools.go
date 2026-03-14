@@ -56,14 +56,14 @@ func toolSchemas() []toolSchema {
 				"properties": map[string]any{
 					"name":        map[string]string{"type": "string", "description": "Worker name"},
 					"description": map[string]string{"type": "string", "description": "Worker description"},
-					"prompt":      map[string]string{"type": "string", "description": "System prompt"},
+					"memory":      map[string]string{"type": "string", "description": "Worker memory content"},
 					"work_dir":    map[string]string{"type": "string", "description": "Working directory path (optional, auto-assigned if empty)"},
 				},
 			},
 		},
 		{
 			Name:        toolnames.UpdateWorker,
-			Description: "Update a worker's name, description, or prompt (patch semantics: omitted fields unchanged)",
+			Description: "Update a worker's name, description, or memory (patch semantics: omitted fields unchanged)",
 			InputSchema: map[string]any{
 				"type":     "object",
 				"required": []string{"worker_id"},
@@ -71,7 +71,7 @@ func toolSchemas() []toolSchema {
 					"worker_id":   map[string]string{"type": "string", "description": "Worker ID"},
 					"name":        map[string]string{"type": "string", "description": "New name"},
 					"description": map[string]string{"type": "string", "description": "New description"},
-					"prompt":      map[string]string{"type": "string", "description": "New system prompt"},
+					"memory":      map[string]string{"type": "string", "description": "New memory content"},
 				},
 			},
 		},
@@ -240,7 +240,7 @@ func (s *MCPServer) toolCreateWorker(args json.RawMessage) (any, error) {
 	var params struct {
 		Name        string `json:"name"`
 		Description string `json:"description"`
-		Prompt      string `json:"prompt"`
+		Memory      string `json:"memory"`
 		WorkDir     string `json:"work_dir"`
 	}
 	if err := json.Unmarshal(args, &params); err != nil {
@@ -249,7 +249,7 @@ func (s *MCPServer) toolCreateWorker(args json.RawMessage) (any, error) {
 	if params.Name == "" {
 		return nil, fmt.Errorf("name is required")
 	}
-	return s.manager.CreateWorker(params.Name, params.Description, params.Prompt, params.WorkDir)
+	return s.manager.CreateWorker(params.Name, params.Description, params.Memory, params.WorkDir)
 }
 
 func (s *MCPServer) toolUpdateWorker(args json.RawMessage) (any, error) {
@@ -257,7 +257,7 @@ func (s *MCPServer) toolUpdateWorker(args json.RawMessage) (any, error) {
 		WorkerID    string  `json:"worker_id"`
 		Name        *string `json:"name"`
 		Description *string `json:"description"`
-		Prompt      *string `json:"prompt"`
+		Memory      *string `json:"memory"`
 	}
 	if err := json.Unmarshal(args, &params); err != nil {
 		return nil, fmt.Errorf("invalid args: %w", err)
@@ -277,8 +277,8 @@ func (s *MCPServer) toolUpdateWorker(args json.RawMessage) (any, error) {
 	if params.Description != nil {
 		w.Description = *params.Description
 	}
-	if params.Prompt != nil {
-		w.Prompt = *params.Prompt
+	if params.Memory != nil {
+		w.Memory = *params.Memory
 	}
 
 	return s.workerStore.Update(w)

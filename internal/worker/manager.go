@@ -61,7 +61,7 @@ func NewManager(
 }
 
 func (m *Manager) CreateWorker(
-	name, description, prompt string,
+	name, description, memory string,
 	workDir string,
 ) (model.Worker, error) {
 	id := uuid.New().String()
@@ -76,13 +76,13 @@ func (m *Manager) CreateWorker(
 	// Initialize CLAUDE.md only if it doesn't already exist
 	claudeMD := filepath.Join(workDir, "CLAUDE.md")
 	if _, err := os.Stat(claudeMD); os.IsNotExist(err) {
-		initialContent := fmt.Sprintf("# %s\n\n**Role:** %s\n\n## Work Memories\n\n", name, description)
+		initialContent := "@.robobee.claude.md\n"
 		if err := os.WriteFile(claudeMD, []byte(initialContent), 0644); err != nil {
 			return model.Worker{}, fmt.Errorf("create CLAUDE.md: %w", err)
 		}
 	}
 
-	if err := claudemd.EnsureSystemRules(workDir, claudemd.RoleWorker); err != nil {
+	if err := claudemd.EnsureSystemRules(workDir, claudemd.RoleWorker, claudemd.WithName(name), claudemd.WithDescription(description)); err != nil {
 		log.Printf("create worker: ensure system rules: %v", err)
 	}
 
@@ -90,7 +90,7 @@ func (m *Manager) CreateWorker(
 		ID:          id,
 		Name:        name,
 		Description: description,
-		Prompt:      prompt,
+		Memory:      memory,
 		WorkDir:     workDir,
 	})
 }
@@ -111,18 +111,18 @@ func (m *Manager) ExecuteWorker(ctx context.Context, workerID, triggerInput stri
 		log.Printf("failed to update worker status: %v", err)
 	}
 
-	if err := claudemd.EnsureSystemRules(worker.WorkDir, claudemd.RoleWorker); err != nil {
+	if err := claudemd.EnsureSystemRules(worker.WorkDir, claudemd.RoleWorker, claudemd.WithName(worker.Name), claudemd.WithDescription(worker.Description)); err != nil {
 		log.Printf("execute worker: ensure system rules: %v", err)
 	}
 
 	rt := NewClaudeRuntime(m.runtimeCfg.ClaudeCode.Binary, m.runtimeCfg.MCPBaseURL, m.runtimeCfg.MCPAPIKey)
 	timeout := m.runtimeCfg.ClaudeCode.Timeout
 
-	// Build the prompt: base prompt + trigger input
-	prompt := worker.Prompt
+	// Build the prompt: memory + trigger input
+	prompt := worker.Memory
 	if triggerInput != "" {
-		if worker.Prompt != "" {
-			prompt = fmt.Sprintf("%s\n\n---\nMessage:\n%s", worker.Prompt, triggerInput)
+		if worker.Memory != "" {
+			prompt = fmt.Sprintf("%s\n\n---\nMessage:\n%s", worker.Memory, triggerInput)
 		} else {
 			prompt = triggerInput
 		}
@@ -154,7 +154,7 @@ func (m *Manager) ExecuteWorkerWithSession(ctx context.Context, workerID, trigge
 		log.Printf("failed to update worker status: %v", err)
 	}
 
-	if err := claudemd.EnsureSystemRules(worker.WorkDir, claudemd.RoleWorker); err != nil {
+	if err := claudemd.EnsureSystemRules(worker.WorkDir, claudemd.RoleWorker, claudemd.WithName(worker.Name), claudemd.WithDescription(worker.Description)); err != nil {
 		log.Printf("execute worker with session: ensure system rules: %v", err)
 	}
 
@@ -305,7 +305,7 @@ func (m *Manager) ReplyExecution(ctx context.Context, executionID string, messag
 		log.Printf("failed to update worker status: %v", err)
 	}
 
-	if err := claudemd.EnsureSystemRules(worker.WorkDir, claudemd.RoleWorker); err != nil {
+	if err := claudemd.EnsureSystemRules(worker.WorkDir, claudemd.RoleWorker, claudemd.WithName(worker.Name), claudemd.WithDescription(worker.Description)); err != nil {
 		log.Printf("reply execution: ensure system rules: %v", err)
 	}
 

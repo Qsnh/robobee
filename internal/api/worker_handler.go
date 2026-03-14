@@ -10,7 +10,7 @@ import (
 type createWorkerRequest struct {
 	Name        string `json:"name" binding:"required"`
 	Description string `json:"description"`
-	Prompt      string `json:"prompt"`
+	Memory      string `json:"memory"`
 	WorkDir     string `json:"work_dir"`
 }
 
@@ -22,7 +22,7 @@ func (s *Server) createWorker(c *gin.Context) {
 	}
 
 	w, err := s.manager.CreateWorker(
-		req.Name, req.Description, req.Prompt, req.WorkDir,
+		req.Name, req.Description, req.Memory, req.WorkDir,
 	)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -60,7 +60,7 @@ func (s *Server) updateWorker(c *gin.Context) {
 	var req struct {
 		Name        string `json:"name"`
 		Description string `json:"description"`
-		Prompt      string `json:"prompt"`
+		Memory      string `json:"memory"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -73,8 +73,8 @@ func (s *Server) updateWorker(c *gin.Context) {
 	if req.Description != "" {
 		w.Description = req.Description
 	}
-	if req.Prompt != "" {
-		w.Prompt = req.Prompt
+	if req.Memory != "" {
+		w.Memory = req.Memory
 	}
 
 	updated, err := s.workerStore.Update(w)

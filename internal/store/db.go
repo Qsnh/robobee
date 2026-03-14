@@ -133,6 +133,11 @@ var migrations = []migration{
 		name:    "20260314_drop_tasks_reply_session_key",
 		sql:     `ALTER TABLE tasks DROP COLUMN reply_session_key`,
 	},
+	{
+		version: 14,
+		name:    "20260314_rename_workers_prompt_to_memory",
+		sql:     `ALTER TABLE workers RENAME COLUMN prompt TO memory`,
+	},
 }
 
 func InitDB(dbPath string) (*sql.DB, error) {

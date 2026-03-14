@@ -90,7 +90,7 @@ func (r *FeishuReceiver) Start(ctx context.Context, dispatch func(platform.Inbou
 						MessageId(*msg.MessageId).
 						Body(larkim.NewCreateMessageReactionReqBodyBuilder().
 							ReactionType(larkim.NewEmojiBuilder().
-								EmojiType("TYPING").
+								EmojiType("Typing").
 								Build()).
 							Build()).
 						Build())

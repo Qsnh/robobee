@@ -12,7 +12,7 @@ type Worker struct {
 	ID                  string       `json:"id" db:"id"`
 	Name                string       `json:"name" db:"name"`
 	Description         string       `json:"description" db:"description"`
-	Prompt              string       `json:"prompt" db:"prompt"`
+	Memory              string       `json:"memory" db:"memory"`
 	WorkDir             string       `json:"work_dir" db:"work_dir"`
 	Status              WorkerStatus `json:"status" db:"status"`
 	CreatedAt           int64        `json:"created_at" db:"created_at"`
