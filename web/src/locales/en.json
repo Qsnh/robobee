@@ -30,8 +30,8 @@
       "descriptionPlaceholder": "What does this worker do?",
       "workDir": "Work Directory (optional)",
       "workDirPlaceholder": "Leave blank to use default",
-      "prompt": "Prompt",
-      "promptPlaceholder": "The instruction this worker will execute..."
+      "memory": "Memory",
+      "memoryPlaceholder": "The instruction this worker will execute..."
     },
     "deleteDialog": {
       "title": "Delete Worker",
@@ -63,7 +63,7 @@
     "id": "ID",
     "workDir": "Work Dir",
     "created": "Created",
-    "prompt": "Prompt"
+    "memory": "Memory"
   },
   "executionDetail": {
     "title": "Execution Detail",

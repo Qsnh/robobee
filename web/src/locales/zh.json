@@ -30,8 +30,8 @@
       "descriptionPlaceholder": "这个工作者做什么？",
       "workDir": "工作目录（可选）",
       "workDirPlaceholder": "留空使用默认目录",
-      "prompt": "提示词",
-      "promptPlaceholder": "这个工作者执行的指令..."
+      "memory": "记忆",
+      "memoryPlaceholder": "这个工作者执行的指令..."
     },
     "deleteDialog": {
       "title": "删除工作者",
@@ -63,7 +63,7 @@
     "id": "ID",
     "workDir": "工作目录",
     "created": "创建时间",
-    "prompt": "提示词"
+    "memory": "记忆"
   },
   "executionDetail": {
     "title": "执行详情",

@@ -21,7 +21,7 @@ export function useCreateWorker() {
     mutationFn: (data: {
       name: string
       description: string
-      prompt?: string
+      memory?: string
       work_dir?: string
     }) => api.workers.create(data),
     onSuccess: () => {

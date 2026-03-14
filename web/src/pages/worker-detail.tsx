@@ -194,11 +194,11 @@ export function WorkerDetail() {
               <p><strong>{t("workerDetail.id")}:</strong> <span className="font-mono text-sm">{worker.id}</span></p>
               <p><strong>{t("workerDetail.workDir")}:</strong> {worker.work_dir}</p>
               <p><strong>{t("workerDetail.created")}:</strong> {new Date(worker.created_at).toLocaleString()}</p>
-              {worker.prompt && (
+              {worker.memory && (
                 <div>
-                  <strong>{t("workerDetail.prompt")}:</strong>
+                  <strong>{t("workerDetail.memory")}:</strong>
                   <pre className="mt-1 whitespace-pre-wrap text-sm bg-muted p-3 rounded-md">
-                    {worker.prompt}
+                    {worker.memory}
                   </pre>
                 </div>
               )}

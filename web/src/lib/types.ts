@@ -5,7 +5,7 @@ export interface Worker {
   id: string
   name: string
   description: string
-  prompt: string
+  memory: string
   work_dir: string
   status: WorkerStatus
   created_at: number

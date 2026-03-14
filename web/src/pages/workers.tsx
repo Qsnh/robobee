@@ -36,7 +36,7 @@ export function Workers() {
   const resetDelete = () => { setDeleteTarget(null); setDeleteWorkDir(false) }
   const [name, setName] = useState("")
   const [description, setDescription] = useState("")
-  const [prompt, setPrompt] = useState("")
+  const [memory, setMemory] = useState("")
   const [workDir, setWorkDir] = useState("")
 
   const error = fetchError?.message || createWorker.error?.message || deleteWorker.error?.message || ""
@@ -45,13 +45,13 @@ export function Workers() {
     await createWorker.mutateAsync({
       name,
       description,
-      prompt: prompt || undefined,
+      memory: memory || undefined,
       work_dir: workDir || undefined,
     })
     setOpen(false)
     setName("")
     setDescription("")
-    setPrompt("")
+    setMemory("")
     setWorkDir("")
   }
 
@@ -102,12 +102,12 @@ export function Workers() {
                 />
               </div>
               <div>
-                <Label htmlFor="prompt">{t("workers.form.prompt")}</Label>
+                <Label htmlFor="memory">{t("workers.form.memory")}</Label>
                 <Textarea
-                  id="prompt"
-                  value={prompt}
-                  onChange={(e) => setPrompt(e.target.value)}
-                  placeholder={t("workers.form.promptPlaceholder")}
+                  id="memory"
+                  value={memory}
+                  onChange={(e) => setMemory(e.target.value)}
+                  placeholder={t("workers.form.memoryPlaceholder")}
                   rows={4}
                 />
               </div>
