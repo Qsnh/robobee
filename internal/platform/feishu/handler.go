@@ -83,6 +83,21 @@ func (r *FeishuReceiver) Start(ctx context.Context, dispatch func(platform.Inbou
 				log.Printf("feishu: failed to marshal event: %v", err)
 				return nil
 			}
+			// Add "typing" reaction to acknowledge message receipt
+			go func() {
+				resp, err := r.larkClient.Im.MessageReaction.Create(ctx,
+					larkim.NewCreateMessageReactionReqBuilder().
+						MessageId(*msg.MessageId).
+						Body(larkim.NewCreateMessageReactionReqBodyBuilder().
+							ReactionType(larkim.NewEmojiBuilder().
+								EmojiType("TYPING").
+								Build()).
+							Build()).
+						Build())
+				if err != nil || !resp.Success() {
+					log.Printf("feishu: add reaction error: %v, resp: %+v", err, resp)
+				}
+			}()
 			dispatch(platform.InboundMessage{
 				Platform:          "feishu",
 				SenderID:          senderID,
