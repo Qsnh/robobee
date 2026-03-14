@@ -255,10 +255,10 @@ func (s *MCPServer) toolCreateWorker(args json.RawMessage) (any, error) {
 
 func (s *MCPServer) toolUpdateWorker(args json.RawMessage) (any, error) {
 	var params struct {
-		WorkerID    string `json:"worker_id"`
-		Name        string `json:"name"`
-		Description string `json:"description"`
-		Prompt      string `json:"prompt"`
+		WorkerID    string  `json:"worker_id"`
+		Name        *string `json:"name"`
+		Description *string `json:"description"`
+		Prompt      *string `json:"prompt"`
 	}
 	if err := json.Unmarshal(args, &params); err != nil {
 		return nil, fmt.Errorf("invalid args: %w", err)
@@ -272,14 +272,14 @@ func (s *MCPServer) toolUpdateWorker(args json.RawMessage) (any, error) {
 		return nil, fmt.Errorf("worker not found: %w", err)
 	}
 
-	if params.Name != "" {
-		w.Name = params.Name
+	if params.Name != nil {
+		w.Name = *params.Name
 	}
-	if params.Description != "" {
-		w.Description = params.Description
+	if params.Description != nil {
+		w.Description = *params.Description
 	}
-	if params.Prompt != "" {
-		w.Prompt = params.Prompt
+	if params.Prompt != nil {
+		w.Prompt = *params.Prompt
 	}
 
 	return s.workerStore.Update(w)

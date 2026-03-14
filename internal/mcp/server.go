@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/url"
 	"sync"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -119,17 +120,30 @@ func (s *MCPServer) handleSSE(c *gin.Context) {
 	c.Header("Cache-Control", "no-cache")
 	c.Header("Connection", "keep-alive")
 
-	// Send endpoint event so client knows where to POST
+	// Send endpoint event so client knows where to POST.
+	// API key is included because Claude CLI's MCP SDK uses the endpoint URL directly
+	// and does not add X-API-Key header automatically.
 	apiKey := c.Query("api_key")
-	endpointURL := fmt.Sprintf("/mcp/messages?session_id=%s&api_key=%s", sessionID, url.QueryEscape(apiKey))
+	params := url.Values{}
+	params.Set("session_id", sessionID)
+	if apiKey != "" {
+		params.Set("api_key", apiKey)
+	}
+	endpointURL := fmt.Sprintf("/mcp/messages?%s", params.Encode())
 	fmt.Fprintf(c.Writer, "event: endpoint\ndata: %s\n\n", endpointURL)
 	c.Writer.Flush()
 
 	ctx := c.Request.Context()
+	heartbeat := time.NewTicker(30 * time.Second)
+	defer heartbeat.Stop()
+
 	for {
 		select {
 		case <-ctx.Done():
 			return
+		case <-heartbeat.C:
+			fmt.Fprintf(c.Writer, ": heartbeat\n\n")
+			c.Writer.Flush()
 		case resp, ok := <-ch:
 			if !ok {
 				return
@@ -185,6 +199,13 @@ func (s *MCPServer) dispatch(req rpcRequest) rpcResponse {
 		// Notification — no response needed
 		return rpcResponse{}
 
+	case "ping":
+		return okResponse(req.ID, map[string]any{})
+
+	case "notifications/cancelled", "notifications/initialized":
+		// Client notifications — no response needed
+		return rpcResponse{}
+
 	case "tools/list":
 		return okResponse(req.ID, map[string]any{"tools": toolSchemas()})
 
@@ -208,11 +229,17 @@ func (s *MCPServer) handleToolCall(req rpcRequest) rpcResponse {
 
 	result, err := s.callTool(params.Name, params.Arguments)
 	if err != nil {
-		return errResponse(req.ID, -32603, err.Error())
+		// Tool execution errors are returned as tool results with isError flag,
+		// not as JSON-RPC errors. This lets the LLM client distinguish between
+		// protocol errors and tool failures.
+		return okResponse(req.ID, map[string]any{
+			"content": []map[string]any{{"type": "text", "text": err.Error()}},
+			"isError": true,
+		})
 	}
 
 	data, _ := json.Marshal(result)
 	return okResponse(req.ID, map[string]any{
-		"content": []map[string]string{{"type": "text", "text": string(data)}},
+		"content": []map[string]any{{"type": "text", "text": string(data)}},
 	})
 }
