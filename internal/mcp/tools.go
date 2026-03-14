@@ -446,7 +446,18 @@ func (s *MCPServer) toolMarkTaskSuccess(args json.RawMessage) (any, error) {
 	if params.TaskID == "" {
 		return nil, fmt.Errorf("task_id is required")
 	}
-	if err := s.taskStore.UpdateStatus(context.Background(), params.TaskID, model.TaskStatusCompleted); err != nil {
+	ctx := context.Background()
+	task, err := s.taskStore.GetByID(ctx, params.TaskID)
+	if err != nil {
+		return nil, fmt.Errorf("get task: %w", err)
+	}
+	if task.Type == model.TaskTypeScheduled && task.CronExpr != "" {
+		if err := s.taskStore.CompleteScheduledTask(ctx, params.TaskID); err != nil {
+			return nil, fmt.Errorf("reset scheduled task: %w", err)
+		}
+		return map[string]string{"task_id": params.TaskID, "status": "pending"}, nil
+	}
+	if err := s.taskStore.UpdateStatus(ctx, params.TaskID, model.TaskStatusCompleted); err != nil {
 		return nil, fmt.Errorf("mark task success: %w", err)
 	}
 	return map[string]string{"task_id": params.TaskID, "status": "completed"}, nil
@@ -463,7 +474,18 @@ func (s *MCPServer) toolMarkTaskFailed(args json.RawMessage) (any, error) {
 	if params.TaskID == "" {
 		return nil, fmt.Errorf("task_id is required")
 	}
-	if err := s.taskStore.UpdateStatus(context.Background(), params.TaskID, model.TaskStatusFailed); err != nil {
+	ctx := context.Background()
+	task, err := s.taskStore.GetByID(ctx, params.TaskID)
+	if err != nil {
+		return nil, fmt.Errorf("get task: %w", err)
+	}
+	if task.Type == model.TaskTypeScheduled && task.CronExpr != "" {
+		if err := s.taskStore.CompleteScheduledTask(ctx, params.TaskID); err != nil {
+			return nil, fmt.Errorf("reset scheduled task: %w", err)
+		}
+		return map[string]string{"task_id": params.TaskID, "status": "pending", "reason": params.Reason}, nil
+	}
+	if err := s.taskStore.UpdateStatus(ctx, params.TaskID, model.TaskStatusFailed); err != nil {
 		return nil, fmt.Errorf("mark task failed: %w", err)
 	}
 	return map[string]string{"task_id": params.TaskID, "status": "failed", "reason": params.Reason}, nil

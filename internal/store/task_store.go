@@ -268,6 +268,15 @@ func (s *TaskStore) ResetRunningToPending(ctx context.Context) (int64, error) {
 	return res.RowsAffected()
 }
 
+// CompleteScheduledTask resets a scheduled task back to pending so it can be
+// picked up again by the next cron cycle.
+func (s *TaskStore) CompleteScheduledTask(ctx context.Context, taskID string) error {
+	_, err := s.db.ExecContext(ctx,
+		`UPDATE tasks SET status = 'pending', updated_at = ? WHERE id = ?`,
+		time.Now().UnixMilli(), taskID)
+	return err
+}
+
 // UpdateNextRunAt sets next_run_at for a scheduled task after dispatch.
 func (s *TaskStore) UpdateNextRunAt(ctx context.Context, taskID string, nextRunAt int64) error {
 	_, err := s.db.ExecContext(ctx,
