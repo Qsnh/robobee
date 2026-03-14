@@ -4,28 +4,40 @@ import (
 	"bufio"
 	"context"
 	"fmt"
+	"net/url"
 	"os/exec"
 	"sync"
 )
 
 type ClaudeRuntime struct {
 	binary string
+	mcpURL string
+	apiKey string
 	cmd    *exec.Cmd
 	mu     sync.Mutex
 }
 
-func NewClaudeRuntime(binary string) *ClaudeRuntime {
-	return &ClaudeRuntime{binary: binary}
+func NewClaudeRuntime(binary, mcpBaseURL, apiKey string) *ClaudeRuntime {
+	return &ClaudeRuntime{
+		binary: binary,
+		mcpURL: mcpBaseURL + "/mcp/sse",
+		apiKey: apiKey,
+	}
 }
 
 func (r *ClaudeRuntime) Execute(ctx context.Context, workDir string, plan string, opts ExecuteOptions) (<-chan Output, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
+	mcpConfig := fmt.Sprintf(
+		`{"mcpServers":{"robobee":{"type":"sse","url":%q}}}`,
+		r.mcpURL+"?api_key="+url.QueryEscape(r.apiKey),
+	)
 	args := []string{
 		"--dangerously-skip-permissions",
 		"--verbose",
 		"--output-format", "stream-json",
+		"--mcp-config", mcpConfig,
 	}
 	if opts.SessionID != "" {
 		if opts.Resume {

@@ -78,6 +78,9 @@ type DatabaseConfig struct {
 
 type RuntimeConfig struct {
 	ClaudeCode RuntimeEntry `yaml:"claude_code"`
+	// Derived fields — not in YAML, computed by Load()
+	MCPBaseURL string `yaml:"-"`
+	MCPAPIKey  string `yaml:"-"`
 }
 
 type RuntimeEntry struct {
@@ -104,6 +107,8 @@ func Load(path string) (Config, error) {
 	cfg.Bee.MCPBaseURL = fmt.Sprintf("http://%s:%d", cfg.Server.Host, cfg.Server.Port)
 	cfg.Bee.MCPAPIKey = cfg.MCP.APIKey
 	cfg.Bee.Binary = cfg.Runtime.ClaudeCode.Binary
+	cfg.Runtime.MCPBaseURL = cfg.Bee.MCPBaseURL
+	cfg.Runtime.MCPAPIKey = cfg.MCP.APIKey
 	return cfg, nil
 }
 

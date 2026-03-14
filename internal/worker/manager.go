@@ -115,7 +115,7 @@ func (m *Manager) ExecuteWorker(ctx context.Context, workerID, triggerInput stri
 		log.Printf("execute worker: ensure system rules: %v", err)
 	}
 
-	rt := NewClaudeRuntime(m.runtimeCfg.ClaudeCode.Binary)
+	rt := NewClaudeRuntime(m.runtimeCfg.ClaudeCode.Binary, m.runtimeCfg.MCPBaseURL, m.runtimeCfg.MCPAPIKey)
 	timeout := m.runtimeCfg.ClaudeCode.Timeout
 
 	// Build the prompt: base prompt + trigger input
@@ -158,7 +158,7 @@ func (m *Manager) ExecuteWorkerWithSession(ctx context.Context, workerID, trigge
 		log.Printf("execute worker with session: ensure system rules: %v", err)
 	}
 
-	rt := NewClaudeRuntime(m.runtimeCfg.ClaudeCode.Binary)
+	rt := NewClaudeRuntime(m.runtimeCfg.ClaudeCode.Binary, m.runtimeCfg.MCPBaseURL, m.runtimeCfg.MCPAPIKey)
 	timeout := m.runtimeCfg.ClaudeCode.Timeout
 
 	// On resume, only the new message is sent — the worker's base prompt is already
@@ -309,7 +309,7 @@ func (m *Manager) ReplyExecution(ctx context.Context, executionID string, messag
 		log.Printf("reply execution: ensure system rules: %v", err)
 	}
 
-	rt := NewClaudeRuntime(m.runtimeCfg.ClaudeCode.Binary)
+	rt := NewClaudeRuntime(m.runtimeCfg.ClaudeCode.Binary, m.runtimeCfg.MCPBaseURL, m.runtimeCfg.MCPAPIKey)
 	timeout := m.runtimeCfg.ClaudeCode.Timeout
 
 	if err := m.launchRuntime(newExec, worker, rt, timeout, message, true); err != nil {
