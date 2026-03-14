@@ -34,7 +34,7 @@ type claudeContent struct {
 }
 
 type Manager struct {
-	workersCfg     config.WorkersConfig
+	workerBaseDir  string
 	runtimeCfg     config.RuntimeConfig
 	workerStore    *store.WorkerStore
 	executionStore *store.ExecutionStore
@@ -45,13 +45,13 @@ type Manager struct {
 }
 
 func NewManager(
-	wc config.WorkersConfig,
+	workerBaseDir string,
 	rc config.RuntimeConfig,
 	ws *store.WorkerStore,
 	es *store.ExecutionStore,
 ) *Manager {
 	return &Manager{
-		workersCfg:     wc,
+		workerBaseDir:  workerBaseDir,
 		runtimeCfg:     rc,
 		workerStore:    ws,
 		executionStore: es,
@@ -66,7 +66,7 @@ func (m *Manager) CreateWorker(
 ) (model.Worker, error) {
 	id := uuid.New().String()
 	if workDir == "" {
-		workDir = filepath.Join(m.workersCfg.BaseDir, id)
+		workDir = filepath.Join(m.workerBaseDir, id)
 	}
 
 	if err := os.MkdirAll(workDir, 0755); err != nil {

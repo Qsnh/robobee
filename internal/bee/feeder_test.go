@@ -70,8 +70,7 @@ func newFeeder(ms *store.MessageStore, ts *store.TaskStore, ss *store.SessionSto
 	cfg.Feeder.BatchSize = 10
 	cfg.Feeder.Timeout = 5 * time.Second
 	cfg.Feeder.QueueWarnThreshold = 100
-	cfg.WorkDir = "/tmp"
-	return bee.NewFeeder(ms, ts, ss, runner, cfg)
+	return bee.NewFeeder(ms, ts, ss, runner, "/tmp", cfg)
 }
 
 // TestFeeder_FirstTick_UsesNewSessionID verifies that on the first message for a sessionKey,

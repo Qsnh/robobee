@@ -67,7 +67,7 @@ func buildApp(cfg config.Config) (*App, error) {
 		return nil, err
 	}
 
-	mgr := buildWorkerManager(cfg.Workers, cfg.Runtime, s)
+	mgr := buildWorkerManager(cfg.Runtime, s)
 
 	dispatchCh := make(chan dispatcher.DispatchTask, 128)
 
@@ -133,13 +133,13 @@ func buildStores(cfg config.DatabaseConfig) (*sql.DB, appStores, error) {
 	}, nil
 }
 
-func buildWorkerManager(wc config.WorkersConfig, rc config.RuntimeConfig, s appStores) *worker.Manager {
-	return worker.NewManager(wc, rc, s.workerStore, s.execStore)
+func buildWorkerManager(rc config.RuntimeConfig, s appStores) *worker.Manager {
+	return worker.NewManager(config.DefaultWorkerBaseDir(), rc, s.workerStore, s.execStore)
 }
 
 func buildBee(cfg config.BeeConfig, s appStores, dispatchCh chan dispatcher.DispatchTask) (*bee.Feeder, *taskscheduler.Scheduler) {
 	beeProcess := bee.NewBeeProcess(cfg)
-	feeder := bee.NewFeeder(s.msgStore, s.taskStore, s.sessionStore, beeProcess, cfg)
+	feeder := bee.NewFeeder(s.msgStore, s.taskStore, s.sessionStore, beeProcess, config.DefaultBeeWorkDir(), cfg)
 	sched := taskscheduler.New(s.taskStore, dispatchCh, cfg.Feeder.Interval)
 	return feeder, sched
 }

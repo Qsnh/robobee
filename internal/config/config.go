@@ -9,10 +9,21 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// DefaultBeeWorkDir returns the hardcoded bee working directory: ~/.robobee/bee
+func DefaultBeeWorkDir() string {
+	home, _ := os.UserHomeDir()
+	return filepath.Join(home, ".robobee", "bee")
+}
+
+// DefaultWorkerBaseDir returns the hardcoded worker base directory: ~/.robobee/worker
+func DefaultWorkerBaseDir() string {
+	home, _ := os.UserHomeDir()
+	return filepath.Join(home, ".robobee", "worker")
+}
+
 type Config struct {
 	Server       ServerConfig        `yaml:"server"`
 	Database     DatabaseConfig      `yaml:"database"`
-	Workers      WorkersConfig       `yaml:"workers"`
 	Runtime      RuntimeConfig       `yaml:"runtime"`
 	Feishu       FeishuConfig        `yaml:"feishu"`
 	DingTalk     DingTalkConfig      `yaml:"dingtalk"`
@@ -23,7 +34,6 @@ type Config struct {
 
 type BeeConfig struct {
 	Name    string       `yaml:"name"`
-	WorkDir string       `yaml:"work_dir"`
 	Persona string       `yaml:"persona"`
 	Feeder  FeederConfig `yaml:"feeder"`
 
@@ -66,10 +76,6 @@ type DatabaseConfig struct {
 	Path string `yaml:"path"`
 }
 
-type WorkersConfig struct {
-	BaseDir string `yaml:"base_dir"`
-}
-
 type RuntimeConfig struct {
 	ClaudeCode RuntimeEntry `yaml:"claude_code"`
 }
@@ -102,25 +108,11 @@ func Load(path string) (Config, error) {
 }
 
 func applyDefaults(cfg *Config) error {
-	if cfg.Workers.BaseDir == "" {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return fmt.Errorf("get home dir: %w", err)
-		}
-		cfg.Workers.BaseDir = filepath.Join(home, ".robobee", "worker")
-	}
 	if cfg.MessageQueue.DebounceWindow == 0 {
 		cfg.MessageQueue.DebounceWindow = 3 * time.Second
 	}
 	if cfg.Bee.Name == "" {
 		cfg.Bee.Name = "bee"
-	}
-	if cfg.Bee.WorkDir == "" {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return fmt.Errorf("get home dir: %w", err)
-		}
-		cfg.Bee.WorkDir = filepath.Join(home, ".robobee", "bee")
 	}
 	if cfg.Bee.Feeder.Interval == 0 {
 		cfg.Bee.Feeder.Interval = 10 * time.Second

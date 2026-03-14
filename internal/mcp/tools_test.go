@@ -29,7 +29,7 @@ func setupMCPServerWithMessaging(t *testing.T) *mcp.MCPServer {
 	ts := store.NewTaskStore(db)
 	ms := store.NewMessageStore(db)
 	mgr := worker.NewManager(
-		config.WorkersConfig{BaseDir: t.TempDir()},
+		t.TempDir(),
 		config.RuntimeConfig{ClaudeCode: config.RuntimeEntry{Binary: "claude"}},
 		ws, es,
 	)
@@ -208,7 +208,7 @@ func setupMCPServerWithSender(t *testing.T, senderID string, sender platform.Pla
 	ts := store.NewTaskStore(db)
 	ms := store.NewMessageStore(db)
 	mgr := worker.NewManager(
-		config.WorkersConfig{BaseDir: t.TempDir()},
+		t.TempDir(),
 		config.RuntimeConfig{ClaudeCode: config.RuntimeEntry{Binary: "claude"}},
 		ws, es,
 	)
@@ -517,7 +517,7 @@ func setupMCPServerWithClear(t *testing.T) (*mcp.MCPServer, *sql.DB, *mockExecSt
 	ts := store.NewTaskStore(db)
 	ms := store.NewMessageStore(db)
 	mgr := worker.NewManager(
-		config.WorkersConfig{BaseDir: t.TempDir()},
+		t.TempDir(),
 		config.RuntimeConfig{ClaudeCode: config.RuntimeEntry{Binary: "claude"}},
 		ws, es,
 	)

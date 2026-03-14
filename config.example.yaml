@@ -8,9 +8,6 @@ message_queue:
 database:
   path: ./data/robobee.db
 
-workers:
-  base_dir: ""  # 留空则默认使用 ~/.robobee/worker（Windows: %USERPROFILE%\.robobee\worker）
-
 runtime:
   claude_code:
     binary: claude
@@ -31,7 +28,6 @@ mcp:
 
 bee:
   name: "bee"
-  work_dir: ""           # defaults to ~/.robobee/bee
   persona: |
     你是 bee，一个专注于任务调度的智能助手。
     你的职责是分析用户消息，将其拆解为具体任务并分配给合适的 worker。

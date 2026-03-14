@@ -25,16 +25,18 @@ type Feeder struct {
 	taskStore    *store.TaskStore
 	sessionStore *store.SessionStore
 	runner       BeeRunner
+	workDir      string
 	cfg          config.BeeConfig
 }
 
 // NewFeeder creates a Feeder.
-func NewFeeder(ms *store.MessageStore, ts *store.TaskStore, ss *store.SessionStore, runner BeeRunner, cfg config.BeeConfig) *Feeder {
+func NewFeeder(ms *store.MessageStore, ts *store.TaskStore, ss *store.SessionStore, runner BeeRunner, workDir string, cfg config.BeeConfig) *Feeder {
 	return &Feeder{
 		msgStore:     ms,
 		taskStore:    ts,
 		sessionStore: ss,
 		runner:       runner,
+		workDir:      workDir,
 		cfg:          cfg,
 	}
 }
@@ -86,12 +88,12 @@ func (f *Feeder) tick(ctx context.Context) {
 		return
 	}
 
-	if err := WriteCLAUDEMD(f.cfg.WorkDir, f.cfg.Persona); err != nil {
+	if err := WriteCLAUDEMD(f.workDir, f.cfg.Persona); err != nil {
 		log.Printf("feeder: write CLAUDE.md: %v", err)
 		f.rollback(ctx, msgs)
 		return
 	}
-	if err := claudemd.EnsureSystemRules(f.cfg.WorkDir, claudemd.RoleBee); err != nil {
+	if err := claudemd.EnsureSystemRules(f.workDir, claudemd.RoleBee); err != nil {
 		log.Printf("feeder: ensure system rules: %v", err)
 		// non-fatal: continue even if system rules update fails
 	}
@@ -130,7 +132,7 @@ func (f *Feeder) processBeeGroup(ctx context.Context, sessionKey string, msgs []
 	beeCtx, cancel := context.WithTimeout(ctx, f.cfg.Feeder.Timeout)
 	defer cancel()
 
-	if err := f.runner.Run(beeCtx, f.cfg.WorkDir, prompt, sessionID, resume); err != nil {
+	if err := f.runner.Run(beeCtx, f.workDir, prompt, sessionID, resume); err != nil {
 		log.Printf("feeder: bee run failed for %s: %v", sessionKey, err)
 		f.rollback(ctx, msgs)
 		return

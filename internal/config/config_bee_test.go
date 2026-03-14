@@ -19,7 +19,6 @@ runtime:
     binary: "claude-custom"
 bee:
   name: "bee"
-  work_dir: "/tmp/bee"
   persona: "you are bee"
 `)
 	f.Close()
@@ -48,7 +47,6 @@ server:
   port: 8080
 bee:
   name: "bee"
-  work_dir: "/tmp/bee"
   persona: "you are bee"
 `)
 	f.Close()
@@ -70,7 +68,6 @@ server:
   port: 8080
 bee:
   name: "bee"
-  work_dir: "/tmp/bee"
   persona: "you are bee"
 `)
 	f.Close()
