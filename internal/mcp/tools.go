@@ -100,7 +100,6 @@ func toolSchemas() []toolSchema {
 					"type":              map[string]any{"type": "string", "enum": []string{"immediate", "countdown", "scheduled"}, "description": "Task type"},
 					"scheduled_at":      map[string]string{"type": "integer", "description": "Unix ms; required for countdown, must be >= now+5s"},
 					"cron_expr":         map[string]string{"type": "string", "description": "5-field cron expression; required for scheduled"},
-					"reply_session_key": map[string]string{"type": "string", "description": "Reply target override session key; required for scheduled"},
 				},
 			},
 		},
@@ -310,7 +309,6 @@ func (s *MCPServer) toolCreateTask(args json.RawMessage) (any, error) {
 		Type            string `json:"type"`
 		ScheduledAt     *int64 `json:"scheduled_at"`
 		CronExpr        string `json:"cron_expr"`
-		ReplySessionKey string `json:"reply_session_key"`
 	}
 	if err := json.Unmarshal(args, &params); err != nil {
 		return nil, fmt.Errorf("invalid args: %w", err)
@@ -343,9 +341,6 @@ func (s *MCPServer) toolCreateTask(args json.RawMessage) (any, error) {
 	case "scheduled":
 		if params.CronExpr == "" {
 			return nil, fmt.Errorf("cron_expr is required for scheduled tasks")
-		}
-		if params.ReplySessionKey == "" {
-			return nil, fmt.Errorf("reply_session_key is required for scheduled tasks")
 		}
 	}
 
@@ -382,8 +377,7 @@ func (s *MCPServer) toolCreateTask(args json.RawMessage) (any, error) {
 		ScheduledAt:     params.ScheduledAt,
 		CronExpr:        params.CronExpr,
 		NextRunAt:       nextRunAt,
-		ReplySessionKey: params.ReplySessionKey,
-		CreatedAt:       nowMS,
+		CreatedAt: nowMS,
 		UpdatedAt:       nowMS,
 	}
 

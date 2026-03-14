@@ -104,9 +104,6 @@ func (d *Dispatcher) handleInbound(task DispatchTask) {
 	}
 
 	replyTo := task.ReplyTo
-	if task.ReplySessionKey != "" {
-		replyTo.SessionKey = task.ReplySessionKey
-	}
 
 	if !state.executing {
 		state.executing = true
@@ -243,9 +240,6 @@ func (d *Dispatcher) handleResult(res internalResult) {
 		next := state.pendingTasks[0]
 		state.pendingTasks = state.pendingTasks[1:]
 		nextReplyTo := next.ReplyTo
-		if next.ReplySessionKey != "" {
-			nextReplyTo.SessionKey = next.ReplySessionKey
-		}
 		state.lastReplyTo = nextReplyTo
 		go d.executeAsync(d.ctx, res.queueKey, next, nextReplyTo)
 	} else {

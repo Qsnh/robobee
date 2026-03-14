@@ -10,6 +10,5 @@ type DispatchTask struct {
 	Instruction     string
 	ReplyTo         platform.InboundMessage // platform info for result delivery
 	TaskType        string                  // "immediate"|"countdown"|"scheduled"
-	MessageID       string                  // originating platform_messages.id (for session lookup)
-	ReplySessionKey string                  // overrides ReplyTo session key if non-empty
+	MessageID string // originating platform_messages.id (for session lookup)
 }

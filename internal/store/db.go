@@ -128,6 +128,11 @@ var migrations = []migration{
 		PRIMARY KEY (session_key, agent_id)
 	)`,
 	},
+	{
+		version: 13,
+		name:    "20260314_drop_tasks_reply_session_key",
+		sql:     `ALTER TABLE tasks DROP COLUMN reply_session_key`,
+	},
 }
 
 func InitDB(dbPath string) (*sql.DB, error) {

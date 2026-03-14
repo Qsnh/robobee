@@ -77,21 +77,15 @@ func (s *Scheduler) poll(ctx context.Context) {
 		}
 
 		sessionKey := ct.MessageSessionKey
-		replySessionKey := ct.ReplySessionKey
-		effectiveSession := sessionKey
-		if replySessionKey != "" {
-			effectiveSession = replySessionKey
-		}
 
 		dt := dispatcher.DispatchTask{
-			TaskID:          ct.ID,
-			WorkerID:        ct.WorkerID,
-			SessionKey:      sessionKey,
-			Instruction:     ct.Instruction,
-			ReplyTo:         platform.InboundMessage{Platform: ct.MessagePlatform, SessionKey: effectiveSession},
-			TaskType:        ct.Type,
-			MessageID:       ct.MessageID,
-			ReplySessionKey: replySessionKey,
+			TaskID:      ct.ID,
+			WorkerID:    ct.WorkerID,
+			SessionKey:  sessionKey,
+			Instruction: ct.Instruction,
+			ReplyTo:     platform.InboundMessage{Platform: ct.MessagePlatform, SessionKey: sessionKey},
+			TaskType:    ct.Type,
+			MessageID:   ct.MessageID,
 		}
 
 		select {

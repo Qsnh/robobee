@@ -28,11 +28,11 @@ func (s *TaskStore) Create(ctx context.Context, t model.Task) (string, error) {
 	_, err := s.db.ExecContext(ctx, `
         INSERT INTO tasks
             (id, message_id, worker_id, instruction, type, status,
-             scheduled_at, cron_expr, next_run_at, reply_session_key, execution_id,
+             scheduled_at, cron_expr, next_run_at, execution_id,
              created_at, updated_at)
-        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
 		id, t.MessageID, t.WorkerID, t.Instruction, t.Type, t.Status,
-		t.ScheduledAt, t.CronExpr, t.NextRunAt, t.ReplySessionKey, "",
+		t.ScheduledAt, t.CronExpr, t.NextRunAt, "",
 		now, now,
 	)
 	if err != nil {
@@ -45,7 +45,7 @@ func (s *TaskStore) Create(ctx context.Context, t model.Task) (string, error) {
 func (s *TaskStore) GetByID(ctx context.Context, id string) (model.Task, error) {
 	row := s.db.QueryRowContext(ctx, `
         SELECT id, message_id, worker_id, instruction, type, status,
-               scheduled_at, cron_expr, next_run_at, reply_session_key, execution_id,
+               scheduled_at, cron_expr, next_run_at, execution_id,
                created_at, updated_at
         FROM tasks WHERE id = ?`, id)
 	return scanTask(row)
@@ -70,7 +70,7 @@ func appendStatusFilter(q string, args []any, status string) (string, []any) {
 // ListByMessageID returns tasks for a given message, optionally filtered by status.
 func (s *TaskStore) ListByMessageID(ctx context.Context, messageID, status string) ([]model.Task, error) {
 	q := `SELECT t.id, t.message_id, t.worker_id, t.instruction, t.type, t.status,
-	             t.scheduled_at, t.cron_expr, t.next_run_at, t.reply_session_key, t.execution_id,
+	             t.scheduled_at, t.cron_expr, t.next_run_at, t.execution_id,
 	             t.created_at, t.updated_at
 	      FROM tasks t WHERE t.message_id = ?`
 	args := []any{messageID}
@@ -87,7 +87,7 @@ func (s *TaskStore) ListByMessageID(ctx context.Context, messageID, status strin
 // status supports comma-separated values (e.g., "pending,running"); empty means all.
 func (s *TaskStore) ListBySessionKey(ctx context.Context, sessionKey, status string) ([]model.Task, error) {
 	q := `SELECT t.id, t.message_id, t.worker_id, t.instruction, t.type, t.status,
-	             t.scheduled_at, t.cron_expr, t.next_run_at, t.reply_session_key, t.execution_id,
+	             t.scheduled_at, t.cron_expr, t.next_run_at, t.execution_id,
 	             t.created_at, t.updated_at
 	      FROM tasks t
 	      JOIN platform_messages pm ON t.message_id = pm.id
@@ -115,7 +115,7 @@ func (s *TaskStore) ClaimDueTasks(ctx context.Context, nowMS int64) ([]model.Cla
 
 	rows, err := tx.QueryContext(ctx, `
         SELECT t.id, t.message_id, t.worker_id, t.instruction, t.type, t.status,
-               t.scheduled_at, t.cron_expr, t.next_run_at, t.reply_session_key,
+               t.scheduled_at, t.cron_expr, t.next_run_at,
                t.execution_id, t.created_at, t.updated_at,
                pm.session_key, pm.platform
         FROM tasks t
@@ -137,7 +137,7 @@ func (s *TaskStore) ClaimDueTasks(ctx context.Context, nowMS int64) ([]model.Cla
 		err := rows.Scan(
 			&ct.ID, &ct.MessageID, &ct.WorkerID, &ct.Instruction,
 			&ct.Type, &ct.Status, &scheduledAt, &ct.CronExpr,
-			&nextRunAt, &ct.ReplySessionKey, &ct.ExecutionID,
+			&nextRunAt, &ct.ExecutionID,
 			&ct.CreatedAt, &ct.UpdatedAt,
 			&ct.MessageSessionKey, &ct.MessagePlatform,
 		)
@@ -283,7 +283,7 @@ func scanTask(row *sql.Row) (model.Task, error) {
 	err := row.Scan(
 		&t.ID, &t.MessageID, &t.WorkerID, &t.Instruction,
 		&t.Type, &t.Status, &scheduledAt, &t.CronExpr,
-		&nextRunAt, &t.ReplySessionKey, &t.ExecutionID,
+		&nextRunAt, &t.ExecutionID,
 		&t.CreatedAt, &t.UpdatedAt,
 	)
 	if err != nil {
@@ -308,7 +308,7 @@ func scanTasks(rows *sql.Rows) ([]model.Task, error) {
 		err := rows.Scan(
 			&t.ID, &t.MessageID, &t.WorkerID, &t.Instruction,
 			&t.Type, &t.Status, &scheduledAt, &t.CronExpr,
-			&nextRunAt, &t.ReplySessionKey, &t.ExecutionID,
+			&nextRunAt, &t.ExecutionID,
 			&t.CreatedAt, &t.UpdatedAt,
 		)
 		if err != nil {

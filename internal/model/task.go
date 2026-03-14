@@ -23,8 +23,7 @@ type Task struct {
 	ScheduledAt     *int64 // ms; countdown: absolute trigger time
 	CronExpr        string
 	NextRunAt       *int64 // ms; scheduled tasks only
-	ReplySessionKey string // optional override reply session
-	ExecutionID     string
+	ExecutionID string
 	CreatedAt       int64
 	UpdatedAt       int64
 }
