@@ -430,7 +430,20 @@ func (s *MCPServer) toolCancelTask(args json.RawMessage) (any, error) {
 	if params.TaskID == "" {
 		return nil, fmt.Errorf("task_id is required")
 	}
-	if err := s.taskStore.CancelTask(context.Background(), params.TaskID); err != nil {
+	ctx := context.Background()
+
+	// Stop running execution if any
+	task, err := s.taskStore.GetByID(ctx, params.TaskID)
+	if err != nil {
+		return nil, fmt.Errorf("get task: %w", err)
+	}
+	if task.ExecutionID != "" && s.execStopper != nil {
+		if err := s.execStopper.StopExecution(task.ExecutionID); err != nil {
+			log.Printf("cancel_task: stop execution %s: %v", task.ExecutionID, err)
+		}
+	}
+
+	if err := s.taskStore.CancelTask(ctx, params.TaskID); err != nil {
 		return nil, fmt.Errorf("cancel task: %w", err)
 	}
 	return map[string]string{"task_id": params.TaskID, "status": "cancelled"}, nil
@@ -452,8 +465,12 @@ func (s *MCPServer) toolMarkTaskSuccess(args json.RawMessage) (any, error) {
 		return nil, fmt.Errorf("get task: %w", err)
 	}
 	if task.Type == model.TaskTypeScheduled && task.CronExpr != "" {
-		if err := s.taskStore.CompleteScheduledTask(ctx, params.TaskID); err != nil {
+		reset, err := s.taskStore.CompleteScheduledTask(ctx, params.TaskID)
+		if err != nil {
 			return nil, fmt.Errorf("reset scheduled task: %w", err)
+		}
+		if !reset {
+			return map[string]string{"task_id": params.TaskID, "status": "cancelled"}, nil
 		}
 		return map[string]string{"task_id": params.TaskID, "status": "pending"}, nil
 	}
@@ -480,8 +497,12 @@ func (s *MCPServer) toolMarkTaskFailed(args json.RawMessage) (any, error) {
 		return nil, fmt.Errorf("get task: %w", err)
 	}
 	if task.Type == model.TaskTypeScheduled && task.CronExpr != "" {
-		if err := s.taskStore.CompleteScheduledTask(ctx, params.TaskID); err != nil {
+		reset, err := s.taskStore.CompleteScheduledTask(ctx, params.TaskID)
+		if err != nil {
 			return nil, fmt.Errorf("reset scheduled task: %w", err)
+		}
+		if !reset {
+			return map[string]string{"task_id": params.TaskID, "status": "cancelled", "reason": params.Reason}, nil
 		}
 		return map[string]string{"task_id": params.TaskID, "status": "pending", "reason": params.Reason}, nil
 	}
